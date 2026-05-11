@@ -20,8 +20,6 @@ calibration_results/**/*.png
 calibration_results/**/*.tex
 calibration_results_smoke/
 results/models/**/config.json
-*.pth
-!results/models/cifar10/resnet18/seed12/best_model.pth
 
 # Python
 __pycache__/
