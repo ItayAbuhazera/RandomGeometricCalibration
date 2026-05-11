@@ -27,7 +27,7 @@ so the calibration pipeline can be exercised without retraining.
 | Paper artifact | Script | Notes |
 |---|---|---|
 | **Table 1** - ECE comparison (all methods, datasets, models) | [Experiments/run_rgc_experiments.py](Experiments/run_rgc_experiments.py) -> [Experiments/generate_paper_tables.py](Experiments/generate_paper_tables.py) | First produces per-config JSONs, then aggregates them into the LaTeX table. |
-| **Table 2** - TOST equivalence tests (RGC_L vs DAC, RGC_L vs RGC_C) | [Experiments/generate_paper_tables.py](Experiments/generate_paper_tables.py) | Uses the same per-config JSONs. |
+| **Table 2** - TOST equivalence tests (RGC_L vs GC(DAC), RGC_L vs RGC_C) | [Experiments/generate_paper_tables.py](Experiments/generate_paper_tables.py) | Uses the same per-config JSONs. |
 | **Figure 1** - Hyperparameter sensitivity (L vs d) | Generated from the hyperparameter sweep in [calibration_results/](calibration_results/) | Currently produced by ad-hoc analysis of the per-config JSON files rather than a dedicated script. |
 | **Figure 2** - Layer-wise feature norm comparison | [Experiments/plot_layer_norms.py](Experiments/plot_layer_norms.py) | Standalone; loads checkpoints and pools feature norms. |
 | **Figure 3** - ECE normalized vs RGC_L | [Experiments/run_rgc_experiments.py](Experiments/run_rgc_experiments.py) | Per-config plot emitted alongside the JSON results. |
