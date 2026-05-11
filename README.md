@@ -95,13 +95,11 @@ calibration_results/{model}/{dataset}/baseline/{seed}/paper_results.json
 
 ## Installation notes
 
-`requirements.txt` is the portable base install used for the paper workflow. FAISS is **not** required: the default path uses `fast_separation`. Install FAISS only if you want to experiment with alternate nearest-neighbor backends:
+`requirements.txt` is the portable base install used for the paper workflow. FAISS is **not** required: the default path uses `fast_separation` with KNN by sklearn. Install FAISS only if you want to experiment with alternate nearest-neighbor backends:
 
 ```bash
 conda install -c pytorch faiss-cpu     # or faiss-gpu on Linux
 ```
-
-`pip install faiss-gpu` is typically unavailable on Windows.
 
 ## Reproducing Figure 2
 
