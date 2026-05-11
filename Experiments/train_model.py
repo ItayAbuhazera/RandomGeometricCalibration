@@ -9,12 +9,10 @@ Supported models:
 
 Outputs (per seed):
     results/models/
-        {experiment_group}/{method}/{dataset}/{model_name}/seed{seed}/
+        {dataset}/{model_name}/seed{seed}/
             best_model.pth
-            {method}_{dataset}_{model_name}_seed{seed}/
-                best_model.pth
-                config.json
-                results.json
+            config.json
+            results.json
 """
 
 from __future__ import annotations
@@ -56,18 +54,15 @@ from data.tiny_imagenet import (
     TinyImageNet,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
 # Force unbuffered output
 (
     sys.stdout.reconfigure(line_buffering=True)
     if hasattr(sys.stdout, "reconfigure")
     else None
 )
-from utils.logging_config import get_logger
+from utils.logging_config import setup_logging, get_logger
+
+setup_logging()
 
 logger = get_logger(__name__)
 
@@ -378,21 +373,16 @@ def training_paths(args: argparse.Namespace) -> Dict[str, Path]:
     output_root = Path(args.output_root).expanduser().resolve()
     seed_dir = (
         output_root
-        / args.experiment_group
-        / args.method
         / args.dataset
         / args.model_name
         / f"seed{args.seed}"
     )
-    exp_name = f"{args.method}_{args.dataset}_{args.model_name}_seed{args.seed}"
-    exp_dir = seed_dir / exp_name
-    exp_dir.mkdir(parents=True, exist_ok=True)
     seed_dir.mkdir(parents=True, exist_ok=True)
     return {
         "seed_dir": seed_dir,
-        "exp_dir": exp_dir,
-        "config": exp_dir / "config.json",
-        "results": exp_dir / "results.json",
+        "exp_dir": seed_dir,
+        "config": seed_dir / "config.json",
+        "results": seed_dir / "results.json",
         "best_model": seed_dir / "best_model.pth",
     }
 

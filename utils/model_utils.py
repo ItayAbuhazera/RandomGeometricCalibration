@@ -945,34 +945,8 @@ def construct_model_path(
 ) -> str:
     """Construct the path to a trained model checkpoint.
 
-    The paper's training script writes
-    ``{base_dir}/{method}/baseline_cross_entropy/{dataset}/{model}/seed{seed}/best_model.pth``.
-    We try that layout first, then fall back to the older flat / nested layouts
-    that some prior runs produced.
+    The training script writes
+    ``{base_dir}/{dataset}/{model}/seed{seed}/best_model.pth``.
+    ``method`` is kept in the signature for compatibility with callers.
     """
-
-    training_script_path = os.path.join(
-        base_dir, method, "baseline_cross_entropy", dataset, model, f"seed{seed}", "best_model.pth"
-    )
-    if os.path.exists(training_script_path):
-        logger.info(f"Found model at training script path: {training_script_path}")
-        return training_script_path
-
-    if method.startswith("baseline_") or method == "baseline":
-        exp_type = "baseline"
-    else:
-        exp_type = "geometric"
-
-    exp_name = f"{method}_{dataset}_{model}_seed{seed}"
-    base_path = os.path.join(base_dir, exp_type, method, dataset, model, f"seed{seed}")
-    flat_checkpoint = os.path.join(base_path, "best_model.pth")
-    nested_checkpoint = os.path.join(base_path, exp_name, "best_model.pth")
-
-    if os.path.exists(flat_checkpoint):
-        logger.info(f"Using flat checkpoint path: {flat_checkpoint}")
-        return flat_checkpoint
-
-    logger.info(
-        f"Flat checkpoint missing; falling back to nested path: {nested_checkpoint}"
-    )
-    return nested_checkpoint
+    return os.path.join(base_dir, dataset, model, f"seed{seed}", "best_model.pth")

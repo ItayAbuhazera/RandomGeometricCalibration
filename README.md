@@ -19,7 +19,7 @@ python run_paper_experiments.py --full
 ```
 
 A pre-trained checkpoint is shipped at
-`results/models/baseline/baseline_cross_entropy/cifar10/resnet18/seed12/best_model.pth`
+`results/models/cifar10/resnet18/seed12/best_model.pth`
 so the calibration pipeline can be exercised without retraining.
 
 ## Where each paper artifact lives
@@ -84,7 +84,7 @@ python Experiments/plot_layer_norms.py
 ## Output layout
 
 ```
-results/models/baseline/baseline_cross_entropy/{dataset}/{model}/seed{seed}/best_model.pth
+results/models/{dataset}/{model}/seed{seed}/best_model.pth
 calibration_results/{model}/{dataset}/baseline/{seed}/paper_results.json
 ```
 

@@ -30,13 +30,13 @@ _LOGGING_CONFIGURED: bool = False
 
 def setup_logging(
     log_file: Optional[Path] = None,
-    console_level: int = logging.INFO,
+    console_level: int = logging.WARNING,
     file_level: int = logging.DEBUG,
 ) -> None:
     """
     Configure project-wide logging.
 
-    - Console handler (INFO by default)
+    - Console handler (WARNING by default)
     - Rotating file handler logs/app.log (DEBUG by default)
     - Timestamp format: HH:MM only (no date, no seconds)
     - Message format excludes the level name (just time + message)

@@ -67,10 +67,9 @@ from utils.layer_utils import filter_feature_layers, is_feature_layer
 from sklearn.preprocessing import normalize
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-from utils.logging_config import get_logger
+from utils.logging_config import setup_logging, get_logger
+
+setup_logging()
 
 logger = get_logger(__name__)
 

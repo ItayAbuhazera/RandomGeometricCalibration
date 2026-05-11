@@ -186,11 +186,10 @@ def construct_model_path(
     seed: int,
 ) -> Path:
     """Construct the expected path to a trained model checkpoint."""
+    # training_method is kept in the signature for compatibility with callers.
     # Match the structure from train_model.py
     return (
         Path(results_dir)
-        / training_method
-        / "baseline_cross_entropy"
         / dataset
         / model_name
         / f"seed{seed}"
