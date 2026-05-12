@@ -19,9 +19,10 @@ python run_paper_experiments.py --quick
 python run_paper_experiments.py --full
 ```
 
-A pre-trained checkpoint is shipped at
-`results/models/cifar10/resnet18/seed12/best_model.pth`
-so the calibration pipeline can be exercised without retraining.
+A pre-trained checkpoint for the quick-start example is shipped at
+`results/models/cifar10/resnet18/seed11/best_model.pth`, so the calibration
+pipeline can be exercised without retraining. An additional seed-12 checkpoint
+is also included for manual single-configuration checks.
 
 ## Where each paper artifact lives
 
@@ -29,7 +30,7 @@ so the calibration pipeline can be exercised without retraining.
 |---|---|---|
 | **Table 1** - ECE comparison (all methods, datasets, models) | [Experiments/run_rgc_experiments.py](Experiments/run_rgc_experiments.py) -> [Experiments/generate_paper_tables.py](Experiments/generate_paper_tables.py) | First produces per-config JSONs, then aggregates them into the LaTeX table. |
 | **Table 2** - TOST equivalence tests (RGC_L vs GC(DAC), RGC_L vs RGC_C) | [Experiments/generate_paper_tables.py](Experiments/generate_paper_tables.py) | Uses the same per-config JSONs. |
-| **Figure 1** - Hyperparameter sensitivity (L vs d) | Generated from the hyperparameter sweep in [calibration_results/](calibration_results/) | Currently produced by ad-hoc analysis of the per-config JSON files rather than a dedicated script. |
+| **Figure 1** - Hyperparameter sensitivity (L vs d) | [Experiments/run_hyperparameter_sweep.py](Experiments/run_hyperparameter_sweep.py) -> [Experiments/generate_hyperparameter_table.py](Experiments/generate_hyperparameter_table.py) | First produces one per-cell JSON for the L ∈ {2,4,6,8,10,12}, d ∈ {64,128,256,512,1024} sweep, then aggregates the grid to CSV/LaTeX. |
 | **Figure 2** - Layer-wise feature norm comparison | [Experiments/plot_layer_norms.py](Experiments/plot_layer_norms.py) | Standalone; loads checkpoints and pools feature norms. |
 | **Figure 3** - ECE normalized vs RGC_L | [Experiments/run_rgc_experiments.py](Experiments/run_rgc_experiments.py) | Per-config plot emitted alongside the JSON results. |
 | **Figure 4** - Preprocessing time | [Experiments/plot_end_to_end_timing.py](Experiments/plot_end_to_end_timing.py) | Aggregates timing fields from the per-config JSONs. |
@@ -44,6 +45,8 @@ run_paper_experiments.py        Top-level wrapper (training + calibration)
 Experiments/
     train_model.py              Trains all paper backbones
     run_rgc_experiments.py      Per-config calibration pipeline (RGC_L, RGC_C, all baselines)
+    run_hyperparameter_sweep.py Runs the Figure 1 L x d sensitivity sweep
+    generate_hyperparameter_table.py Aggregates the Figure 1 sweep into CSV/LaTeX
     generate_paper_tables.py    Aggregates JSONs into Tables 1 and 2
     plot_layer_norms.py         Generates Figure 2
     plot_end_to_end_timing.py   Generates Figures 4 and 5
@@ -74,6 +77,12 @@ python Experiments/run_rgc_experiments.py \
 
 # Build the paper LaTeX tables from collected JSONs
 python Experiments/generate_paper_tables.py --input-dir calibration_results
+
+# Run the L x d hyperparameter sweep (Figure 1 data; expensive)
+python Experiments/run_hyperparameter_sweep.py --skip-existing
+
+# Aggregate sweep results into the sensitivity table
+python Experiments/generate_hyperparameter_table.py
 
 # Generate Figures 4 and 5
 python Experiments/plot_end_to_end_timing.py --input-dir calibration_results
@@ -109,10 +118,17 @@ Figure 2 uses the torchvision pretrained DenseNet-121 to visualize feature norm 
 ## Citation
 
 ```bibtex
-@inproceedings{rgc2026,
-  title={Semantic Geometric Calibration in Randomized Neural Feature Space},
-  author={Itay Abuhazera, Liron Cohen, Gil Einziger},
-  booktitle={Proceedings of the International Joint Conference on Artificial Intelligence (IJCAI)},
-  year={2026}
+@inproceedings{abuhazera2026semantic,
+  title     = {Semantic Geometric Calibration in Randomized Neural Feature Space},
+  author    = {Itay Abuhazera and Liron Cohen and Gil Einziger},
+  booktitle = {Proceedings of the International Joint Conference on Artificial Intelligence},
+  year      = {2026},
+  note      = {To appear}
 }
 ```
+
+## License
+
+The code license is currently pending author/advisor/institution confirmation.
+Until a LICENSE file is added, this repository is provided for review and
+reproducibility inspection, but no reuse license is granted.

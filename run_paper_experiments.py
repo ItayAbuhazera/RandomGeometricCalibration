@@ -79,6 +79,13 @@ FULL_CONFIGS = [
     ("resnet152", "cifar100"),
 ]
 
+PAPER_CONFIGS = [
+    *FULL_CONFIGS,
+    ("resnet50", "tiny_imagenet"),
+    ("resnet101", "tiny_imagenet"),
+    ("resnet152", "tiny_imagenet"),
+]
+
 # Default hyperparameters (from paper Section 4)
 DEFAULT_NUM_LAYERS = 6       # L in paper
 DEFAULT_TARGET_DIM = 256     # d for RGCL, K for RGCC

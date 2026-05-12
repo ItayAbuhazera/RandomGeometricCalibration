@@ -1162,10 +1162,22 @@ def main():
         default=False,
         help="Skip GC(DAC) and GC(TULIP). These methods are only used for the Table 2 TOST equivalence test and add substantial runtime.",
     )
+    parser.add_argument(
+        "--skip-standard-baselines",
+        action="store_true",
+        default=False,
+        help="Skip standard calibration baselines. Used by the hyperparameter sweep runner, which only needs RGCL/RGCC.",
+    )
     
     # Paths
     parser.add_argument("--results-base-dir", type=str, default="results/results", help="Base directory for results")
     parser.add_argument("--output-dir", type=str, default="calibration_comparison", help="Output directory")
+    parser.add_argument(
+        "--output-subdir",
+        type=str,
+        default="",
+        help="Optional subdirectory appended under the per-seed output directory. Used by the hyperparameter sweep runner to keep per-(L,d) results separate.",
+    )
     
     # Device and batch size
     parser.add_argument("--device", type=str, default="cuda", help="Device (cuda or cpu)")
@@ -1191,6 +1203,8 @@ def main():
         args.training_method,
         str(args.seed),
     )
+    if args.output_subdir:
+        output_subdir = os.path.join(output_subdir, args.output_subdir)
     os.makedirs(output_subdir, exist_ok=True)
     output_file = os.path.join(output_subdir, "paper_results.json")
     
@@ -1250,7 +1264,13 @@ def main():
     save_results_incrementally(results, output_file)
     
     # ===== 1. STANDARD BASELINES (Table 1: Uncal, TS, Platt, Isotonic, Beta, DAC, Fast Separation) =====
-    if should_rerun_section(results, "standard_baselines", ["uncalibrated"]):
+    if args.skip_standard_baselines:
+        results["standard_baselines"] = {
+            "skipped": True,
+            "reason": "skipped via --skip-standard-baselines",
+        }
+        save_results_incrementally(results, output_file)
+    elif should_rerun_section(results, "standard_baselines", ["uncalibrated"]):
         logger.info("\n" + "=" * 80)
         logger.info("RUNNING STANDARD BASELINES")
         logger.info("=" * 80)

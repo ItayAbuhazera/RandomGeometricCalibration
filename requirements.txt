@@ -1,4 +1,4 @@
-# GeometricInternalCalibration - base requirements
+# RandomGeometricCalibration - base requirements
 #
 # This file intentionally contains only the packages needed for the default
 # IJCAI reproduction path and for a portable `pip install -r requirements.txt`

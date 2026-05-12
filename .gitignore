@@ -12,7 +12,11 @@ logs/
 *.out
 *.err
 
-# Model checkpoints (large)
+# Model checkpoints: keep only explicitly whitelisted release examples.
+results/models/**/*.pth
+!results/models/cifar10/resnet18/seed11/best_model.pth
+!results/models/cifar10/resnet18/seed12/best_model.pth
+
 # Calibration outputs are generated locally; keep them out of `git add .`.
 calibration_results/**/*.csv
 calibration_results/**/*.json
@@ -40,6 +44,9 @@ figures/
 # Generated paper tables (regenerate from calibration_results/*.json if needed)
 latex_tables_statistics/*.tex
 latex_tables_statistics/*.csv
+latex_tables_statistics/**/*.tex
+latex_tables_statistics/**/*.csv
+latex_tables_statistics/**/*.json
 
 # Local audit / cleanup notes (not part of paper artifacts)
 repo_experiment_audit.md
