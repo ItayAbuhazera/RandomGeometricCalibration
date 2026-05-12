@@ -1,4 +1,4 @@
-name: geometric-internal-calibration
+name: random-geometric-calibration
 channels:
   - defaults
 dependencies:

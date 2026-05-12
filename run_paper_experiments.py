@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-Reproduce IJCAI paper experiments for Random Geometric Calibration (RGC).
+Run Random Geometric Calibration (RGC) experiment sweeps.
 
-This script provides a clean entry point for running all paper experiments with
-sensible defaults and comprehensive error handling.
+This script provides a clean entry point for running the available experiment
+sweep with sensible defaults and comprehensive error handling.
 
 Usage:
     python run_paper_experiments.py --quick         # Quick smoke test
-    python run_paper_experiments.py --full          # All paper results (~hours)
+    python run_paper_experiments.py --full          # Available full sweep (~hours)
     python run_paper_experiments.py --model resnet50 --dataset cifar100
 
 Examples:
     # Quick test with single configuration
     python run_paper_experiments.py --quick
 
-    # Full paper reproduction (14 model-dataset pairs x 3 seeds = 42 runs)
+    # Available full sweep (CIFAR configs only: 11 model-dataset pairs x 10 seeds = 110 runs)
     python run_paper_experiments.py --full
 
     # Specific configuration
     python run_paper_experiments.py --model resnet50 --dataset cifar100 --seed 12
 
-    # Resume interrupted full run (skips completed experiments)
+    # Resume interrupted full sweep (skips completed experiments)
     python run_paper_experiments.py --full
 
     # Force re-run even if results exist
@@ -52,16 +52,18 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 # =============================================================================
-# PAPER CONFIGURATIONS (from Section 4)
+# AVAILABLE FULL-SWEEP CONFIGURATIONS
 # =============================================================================
 
 MODELS = ["resnet18", "resnet50", "resnet101", "resnet152", "densenet121", "dinov2_large"]
 DATASETS = ["cifar10", "cifar100", "tiny_imagenet"]
-SEEDS = [11, 12, 13]
+SEEDS = list(range(11, 21))
 
-# Table 1 model-dataset pairs. DINOv2-Large only appears for CIFAR-100 because
-# it is an evaluation of a pretrained backbone via linear probing.
-PAPER_CONFIGS = [
+# CIFAR model-dataset pairs included in the default --full sweep. DINOv2-Large
+# only appears for CIFAR-100 because it is an evaluation of a pretrained
+# backbone via linear probing. Tiny-ImageNet can still be run explicitly after
+# extracting the dataset, but it is not included in --full.
+FULL_CONFIGS = [
     # CIFAR-10
     ("densenet121", "cifar10"),
     ("resnet18", "cifar10"),
@@ -75,10 +77,6 @@ PAPER_CONFIGS = [
     ("resnet50", "cifar100"),
     ("resnet101", "cifar100"),
     ("resnet152", "cifar100"),
-    # Tiny ImageNet
-    ("resnet50", "tiny_imagenet"),
-    ("resnet101", "tiny_imagenet"),
-    ("resnet152", "tiny_imagenet"),
 ]
 
 # Default hyperparameters (from paper Section 4)
@@ -708,7 +706,7 @@ def run_single_experiment(
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Reproduce IJCAI paper experiments for Random Geometric Calibration (RGC).",
+        description="Run Random Geometric Calibration (RGC) experiment sweeps.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -716,7 +714,7 @@ Examples:
         Quick smoke test with ResNet-18 on CIFAR-10
 
     python run_paper_experiments.py --full
-        Run all paper configurations (14 model-dataset pairs x 3 seeds = 42 runs)
+        Run the available full sweep (CIFAR only: 11 model-dataset pairs x 10 seeds = 110 runs)
 
     python run_paper_experiments.py --model resnet50 --dataset cifar100
         Run specific configuration
@@ -739,7 +737,7 @@ Examples:
     mode_group.add_argument(
         "--full",
         action="store_true",
-        help="Full paper: 14 model-dataset pairs x 3 seeds (42 configurations)",
+        help="Available full sweep: CIFAR-only, 11 model-dataset pairs x 10 seeds (110 configurations)",
     )
 
     # Specific configuration
@@ -827,9 +825,9 @@ Examples:
         mode_name = "QUICK"
         mode_desc = "Testing ResNet-18 on CIFAR-10"
     elif args.full:
-        configs = [(m, d, s) for (m, d) in PAPER_CONFIGS for s in SEEDS]
+        configs = [(m, d, s) for (m, d) in FULL_CONFIGS for s in SEEDS]
         mode_name = "FULL"
-        mode_desc = f"{len(configs)} configurations ({len(PAPER_CONFIGS)} model-dataset pairs x {len(SEEDS)} seeds)"
+        mode_desc = f"{len(configs)} configurations ({len(FULL_CONFIGS)} model-dataset pairs x {len(SEEDS)} seeds)"
     elif args.model and args.dataset:
         configs = [(args.model, args.dataset, args.seed)]
         mode_name = "CUSTOM"
@@ -841,7 +839,7 @@ Examples:
 
     # Print header
     print("\n" + "=" * 60)
-    print("RGC Paper Experiments - IJCAI 2026")
+    print("RGC Experiment Sweep - IJCAI 2026")
     print("=" * 60)
     print(f"Mode:          {mode_name} ({mode_desc})")
     print(f"Device:        {args.device}")

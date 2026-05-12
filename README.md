@@ -2,20 +2,20 @@
 
 Official code release for **"Semantic Geometric Calibration in Randomized Neural Feature Space"** (IJCAI 2026).
 
-This repository contains the complete training and calibration pipeline used to produce every table and figure in the paper, plus a one-command wrapper for reproducing the headline results.
+This repository contains the training and calibration pipeline for the Random Geometric Calibration experiments, plus a one-command wrapper for the available CIFAR sweep.
 
 ## Quick Start
 
 ```bash
 conda env create -f environment.yml
-conda activate geometric-internal-calibration
+conda activate random-geometric-calibration
 pip install -r requirements.txt
 
 # Quick smoke test: ResNet-18 / CIFAR-10 / seed 11, Table 1 methods only.
 # GC(DAC) and GC(TULIP) are skipped in --quick (used only for Table 2 TOST tests).
 python run_paper_experiments.py --quick
 
-# Full paper reproduction (14 model-dataset pairs x 3 seeds = 42 runs)
+# Available full sweep (CIFAR configs only: 11 model-dataset pairs x 10 seeds = 110 runs)
 python run_paper_experiments.py --full
 ```
 
