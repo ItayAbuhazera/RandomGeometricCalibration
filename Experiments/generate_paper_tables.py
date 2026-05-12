@@ -257,7 +257,7 @@ def extract_baseline_metrics(result: Dict[str, Any]) -> Dict[str, float]:
     return metrics
 
 
-def extract_sgc_result(result: Dict[str, Any], L: int, d: int) -> Optional[float]:
+def extract_rgcl_result(result: Dict[str, Any], L: int, d: int) -> Optional[float]:
     """Extract RGCL ECE for the requested (L, d) configuration."""
     rgcl = result.get('rgcl', {})
     if rgcl and isinstance(rgcl, dict) and not rgcl.get('skipped', False):
@@ -268,7 +268,7 @@ def extract_sgc_result(result: Dict[str, Any], L: int, d: int) -> Optional[float
     return None
 
 
-def extract_sgc_acc(result: Dict[str, Any], L: int, d: int) -> Optional[float]:
+def extract_rgcl_acc(result: Dict[str, Any], L: int, d: int) -> Optional[float]:
     """Extract RGCL accuracy for the requested (L, d) configuration."""
     rgcl = result.get('rgcl', {})
     if rgcl and isinstance(rgcl, dict) and not rgcl.get('skipped', False):
@@ -299,7 +299,7 @@ def extract_coordinate_sampling_acc(result: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def extract_sgc_with_dac_layers_ece(result: Dict[str, Any]) -> Optional[float]:
+def extract_gc_with_dac_layers_ece(result: Dict[str, Any]) -> Optional[float]:
     """Extract GC(DAC) ECE from the gc_dac section."""
     gc_dac = result.get('gc_dac', {})
     if gc_dac and isinstance(gc_dac, dict) and not gc_dac.get('skipped', False):
@@ -307,7 +307,7 @@ def extract_sgc_with_dac_layers_ece(result: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def extract_sgc_with_dac_layers_acc(result: Dict[str, Any]) -> Optional[float]:
+def extract_gc_with_dac_layers_acc(result: Dict[str, Any]) -> Optional[float]:
     """Extract GC(DAC) accuracy from the gc_dac section."""
     gc_dac = result.get('gc_dac', {})
     if gc_dac and isinstance(gc_dac, dict) and not gc_dac.get('skipped', False):
@@ -368,16 +368,16 @@ def aggregate_over_seeds(results: List[Dict[str, Any]]) -> pd.DataFrame:
         baseline_metrics = extract_baseline_metrics(result)
         
         # RGCL (L=6, d=256)
-        sgc_ece = extract_sgc_result(result, L=6, d=256)
-        sgc_acc = extract_sgc_acc(result, L=6, d=256)
+        rgcl_ece = extract_rgcl_result(result, L=6, d=256)
+        rgcl_acc = extract_rgcl_acc(result, L=6, d=256)
 
         # RGCC
         coord_ece = extract_coordinate_sampling_ece(result)
         coord_acc = extract_coordinate_sampling_acc(result)
 
         # GC(DAC)
-        sgc_dac_layers_ece = extract_sgc_with_dac_layers_ece(result)
-        sgc_dac_layers_acc = extract_sgc_with_dac_layers_acc(result)
+        gc_dac_layers_ece = extract_gc_with_dac_layers_ece(result)
+        gc_dac_layers_acc = extract_gc_with_dac_layers_acc(result)
 
         # D.Ens
         deep_ensemble_ece = extract_deep_ensemble_ece(result)
@@ -389,12 +389,12 @@ def aggregate_over_seeds(results: List[Dict[str, Any]]) -> pd.DataFrame:
             'model_name': model_name,
             'seed': result.get('experiment_info', {}).get('seed', result.get('experiment_config', {}).get('seed', None)),
             **baseline_metrics,
-            'sgc_ece': sgc_ece,
-            'sgc_acc': sgc_acc,
+            'rgcl_ece': rgcl_ece,
+            'rgcl_acc': rgcl_acc,
             'coord_ece': coord_ece,
             'coord_acc': coord_acc,
-            'sgc_dac_layers_ece': sgc_dac_layers_ece,
-            'sgc_dac_layers_acc': sgc_dac_layers_acc,
+            'gc_dac_layers_ece': gc_dac_layers_ece,
+            'gc_dac_layers_acc': gc_dac_layers_acc,
             'deep_ensemble_ece': deep_ensemble_ece,
             'deep_ensemble_acc': deep_ensemble_acc,
         }
@@ -465,7 +465,7 @@ def perform_tost_test(
     Perform Two One-Sided Tests (TOST) for equivalence testing.
     
     Args:
-        scores1: First set of paired scores (e.g., SGC ECE values)
+        scores1: First set of paired scores (e.g., RGC ECE values)
         scores2: Second set of paired scores (e.g., Coord ECE values)
         equivalence_margin: Equivalence margin (delta) in same units as scores (default 0.005 = 0.5%)
     
@@ -732,7 +732,7 @@ def generate_main_results_table(aggregated_df: pd.DataFrame) -> str:
             'pixel_geo': row.get('pixel_geo_ece_mean', np.nan),
             'tulip': TULIP_PUBLISHED.get((dataset, row['training_method'], model_name), (np.nan, np.nan))[0],
             'deep_ensemble': row.get('deep_ensemble_ece_mean', np.nan),
-            'sgc': row.get('sgc_ece_mean', np.nan),
+            'rgcl': row.get('rgcl_ece_mean', np.nan),
             'coord': row.get('coord_ece_mean', np.nan),
         }
         
@@ -748,9 +748,9 @@ def generate_main_results_table(aggregated_df: pd.DataFrame) -> str:
         
         # Format dataset and model
         dataset_display = dataset.upper()
-        acc_mean = row.get('uncal_acc_mean', row.get('sgc_acc_mean', np.nan))
-        acc_ci = row.get('uncal_acc_ci', row.get('sgc_acc_ci', np.nan))
-        acc_count = row.get('uncal_acc_count', row.get('sgc_acc_count', None))
+        acc_mean = row.get('uncal_acc_mean', row.get('rgcl_acc_mean', np.nan))
+        acc_ci = row.get('uncal_acc_ci', row.get('rgcl_acc_ci', np.nan))
+        acc_count = row.get('uncal_acc_count', row.get('rgcl_acc_count', None))
         model_display = f"{model_name} ({format_accuracy_value(acc_mean, ci_val=acc_ci, count=acc_count)})"
         
         # Show dataset name only on first row of each dataset group
@@ -811,8 +811,8 @@ def generate_main_results_table(aggregated_df: pd.DataFrame) -> str:
             format_tulip(best_method == 'tulip', second_method == 'tulip', third_method == 'tulip'),
             format_method('deep_ensemble', 'deep_ensemble_ece_mean', 'deep_ensemble_ece_ci', 'deep_ensemble_ece_count',
                          best_method == 'deep_ensemble', second_method == 'deep_ensemble', third_method == 'deep_ensemble'),
-            format_method('sgc', 'sgc_ece_mean', 'sgc_ece_ci', 'sgc_ece_count',
-                         best_method == 'sgc', second_method == 'sgc', third_method == 'sgc'),
+            format_method('rgcl', 'rgcl_ece_mean', 'rgcl_ece_ci', 'rgcl_ece_count',
+                         best_method == 'rgcl', second_method == 'rgcl', third_method == 'rgcl'),
             format_method('coord', 'coord_ece_mean', 'coord_ece_ci', 'coord_ece_count',
                          best_method == 'coord', second_method == 'coord', third_method == 'coord'),
         ]
@@ -829,8 +829,8 @@ def generate_main_results_table(aggregated_df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative_margin_percent: float = 0.10, absolute_margin_floor: float = 0.001) -> str:
-    """Compare SGC (RGC_L) against Coordinate (RGC_C) ECE with TOST equivalence testing.
+def generate_rgcl_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative_margin_percent: float = 0.10, absolute_margin_floor: float = 0.001) -> str:
+    """Compare RGC (RGC_L) against Coordinate (RGC_C) ECE with TOST equivalence testing.
     
     Args:
         aggregated_df: DataFrame with aggregated results
@@ -840,7 +840,7 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
     lines = []
 
     if aggregated_df.empty:
-        return "% No data available for SGC vs Coord comparison"
+        return "% No data available for RGC vs Coord comparison"
 
     df = aggregated_df.copy()
 
@@ -858,13 +858,13 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
         return combined
 
     agg_dict = {
-        'sgc_ece_mean': 'mean',
-        'sgc_ece_std': rms_agg,
-        'sgc_ece_count': 'sum',
+        'rgcl_ece_mean': 'mean',
+        'rgcl_ece_std': rms_agg,
+        'rgcl_ece_count': 'sum',
         'coord_ece_mean': 'mean',
         'coord_ece_std': rms_agg,
         'coord_ece_count': 'sum',
-        'sgc_ece_values': flatten_lists,
+        'rgcl_ece_values': flatten_lists,
         'coord_ece_values': flatten_lists,
     }
 
@@ -875,14 +875,14 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
         df = df.groupby(['dataset', 'model_name']).agg(agg_dict).reset_index()
 
     df = df[
-        df.get('sgc_ece_mean').notna()
+        df.get('rgcl_ece_mean').notna()
         & df.get('coord_ece_mean').notna()
     ]
 
     if df.empty:
-        return "% No overlapping SGC and Coord results for comparison"
+        return "% No overlapping RGC and Coord results for comparison"
 
-    lines.append("% RGC_L vs RGC_C (SGC vs Coordinate) calibration comparison table")
+    lines.append("% RGC_L vs RGC_C (RGC vs Coordinate) calibration comparison table")
     lines.append("\\begin{table*}[htbp]")
     lines.append("\\centering")
     lines.append(f"\\caption{{RGC$_L$ vs RGC$_C$ calibration comparison (ECE \\%; lower is better). We report mean$\\pm$std over $n$ paired trials. We test for equivalence using Paired TOST with a hybrid margin: $\\delta = \\max({relative_margin_percent*100:.0f}\\%\\text{{ of mean}}, {absolute_margin_floor*100:.1f}\\text{{ pp}})$. TOST $p<0.05$ indicates the mean difference falls significantly within $[-\\delta, +\\delta]$. $d_z$ denotes paired effect size.}}")
@@ -900,22 +900,22 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
         dataset = row['dataset']
         model = row['model_name']
 
-        sgc_mean = row.get('sgc_ece_mean', np.nan)
-        sgc_std = row.get('sgc_ece_std', np.nan)
-        sgc_count = row.get('sgc_ece_count', None)
+        rgcl_mean = row.get('rgcl_ece_mean', np.nan)
+        rgcl_std = row.get('rgcl_ece_std', np.nan)
+        rgcl_count = row.get('rgcl_ece_count', None)
         coord_mean = row.get('coord_ece_mean', np.nan)
         coord_std = row.get('coord_ece_std', np.nan)
         coord_count = row.get('coord_ece_count', None)
 
-        sgc_str = format_ece_value(sgc_mean, sgc_std, sgc_count, inline_math=True)
+        rgcl_str = format_ece_value(rgcl_mean, rgcl_std, rgcl_count, inline_math=True)
         coord_str = format_ece_value(coord_mean, coord_std, coord_count, inline_math=True)
 
-        sgc_vals = [v for v in row.get('sgc_ece_values', []) if pd.notna(v)]
+        rgcl_vals = [v for v in row.get('rgcl_ece_values', []) if pd.notna(v)]
         coord_vals = [v for v in row.get('coord_ece_values', []) if pd.notna(v)]
 
         # Calculate hybrid margin: max(relative margin, absolute floor)
         # Use the baseline (coord) mean for margin calculation
-        baseline_mean = coord_mean if pd.notna(coord_mean) else sgc_mean if pd.notna(sgc_mean) else 0.01
+        baseline_mean = coord_mean if pd.notna(coord_mean) else rgcl_mean if pd.notna(rgcl_mean) else 0.01
         if pd.notna(baseline_mean) and baseline_mean > 0:
             relative_margin = baseline_mean * relative_margin_percent
             equivalence_margin = max(relative_margin, absolute_margin_floor)
@@ -923,7 +923,7 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
             equivalence_margin = absolute_margin_floor
 
         # Perform TOST test
-        tost_result = perform_tost_test(sgc_vals, coord_vals, equivalence_margin=equivalence_margin)
+        tost_result = perform_tost_test(rgcl_vals, coord_vals, equivalence_margin=equivalence_margin)
         
         mean_diff = tost_result['mean_diff']
         diff_str = f"{mean_diff*100:+.2f}" if pd.notna(mean_diff) else "---"
@@ -952,7 +952,7 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
             'Dataset': dataset,
             'Training': 'aggregated',
             'Model': model,
-            'RGC_L_Mean': sgc_mean * 100 if pd.notna(sgc_mean) else np.nan,
+            'RGC_L_Mean': rgcl_mean * 100 if pd.notna(rgcl_mean) else np.nan,
             'RGC_C_Mean': coord_mean * 100 if pd.notna(coord_mean) else np.nan,
             'TOST_P_Value': tost_p,
             'Effect_Size': dz,
@@ -962,7 +962,7 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
         cells = [
             dataset.upper(),
             model,
-            sgc_str,
+            rgcl_str,
             coord_str,
             diff_str,
             ci_str,
@@ -981,8 +981,8 @@ def generate_sgc_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative
     return "\n".join(lines)
 
 
-def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relative_margin_percent: float = 0.10, absolute_margin_floor: float = 0.001) -> str:
-    """Compare SGC (RGC_L with random layers) against SGC(DAC) (RGC_L with DAC's layer selection) with TOST equivalence testing.
+def generate_rgcl_vs_gc_dac_comparison_table(aggregated_df: pd.DataFrame, relative_margin_percent: float = 0.10, absolute_margin_floor: float = 0.001) -> str:
+    """Compare RGC_L against GC(DAC) with TOST equivalence testing.
     
     This table demonstrates that random layer selection performs comparably to DAC's carefully tuned layer selection.
     
@@ -994,7 +994,7 @@ def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
     lines = []
 
     if aggregated_df.empty:
-        return "% No data available for SGC vs SGC(DAC) comparison"
+        return "% No data available for RGC_L vs GC(DAC) comparison"
 
     df = aggregated_df.copy()
 
@@ -1012,14 +1012,14 @@ def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
         return combined
 
     agg_dict = {
-        'sgc_ece_mean': 'mean',
-        'sgc_ece_std': rms_agg,
-        'sgc_ece_count': 'sum',
-        'sgc_dac_layers_ece_mean': 'mean',
-        'sgc_dac_layers_ece_std': rms_agg,
-        'sgc_dac_layers_ece_count': 'sum',
-        'sgc_ece_values': flatten_lists,
-        'sgc_dac_layers_ece_values': flatten_lists,
+        'rgcl_ece_mean': 'mean',
+        'rgcl_ece_std': rms_agg,
+        'rgcl_ece_count': 'sum',
+        'gc_dac_layers_ece_mean': 'mean',
+        'gc_dac_layers_ece_std': rms_agg,
+        'gc_dac_layers_ece_count': 'sum',
+        'rgcl_ece_values': flatten_lists,
+        'gc_dac_layers_ece_values': flatten_lists,
     }
 
     present_cols = set(df.columns)
@@ -1029,23 +1029,23 @@ def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
         df = df.groupby(['dataset', 'model_name']).agg(agg_dict).reset_index()
 
     df = df[
-        df.get('sgc_ece_mean').notna()
-        & df.get('sgc_dac_layers_ece_mean').notna()
+        df.get('rgcl_ece_mean').notna()
+        & df.get('gc_dac_layers_ece_mean').notna()
     ]
 
     if df.empty:
-        return "% No overlapping SGC and SGC(DAC) results for comparison"
+        return "% No overlapping RGC and GC(DAC) results for comparison"
 
-    lines.append("% RGC_L (random layers) vs SGC(DAC) (DAC's layer selection) comparison table")
+    lines.append("% RGC_L (random layers) vs GC(DAC) (DAC's layer selection) comparison table")
     lines.append("\\begin{table*}[htbp]")
     lines.append("\\centering")
-    lines.append(f"\\caption{{RGC$_L$ (random layers) vs SGC(DAC) (DAC's layer selection) comparison (ECE \\%; lower is better). This demonstrates that random layer selection performs comparably to DAC's carefully tuned layer selection. We report mean$\\pm$std over $n$ paired trials. We test for equivalence using Paired TOST with a hybrid margin: $\\delta = \\max({relative_margin_percent*100:.0f}\\%\\text{{ of mean}}, {absolute_margin_floor*100:.1f}\\text{{ pp}})$. TOST $p<0.05$ indicates the mean difference falls significantly within $[-\\delta, +\\delta]$. $d_z$ denotes paired effect size.}}")
-    lines.append("\\label{tab:rgc_l_vs_sgc_dac}")
+    lines.append(f"\\caption{{RGC$_L$ (random layers) vs GC(DAC) (DAC's layer selection) comparison (ECE \\%; lower is better). This demonstrates that random layer selection performs comparably to DAC's carefully tuned layer selection. We report mean$\\pm$std over $n$ paired trials. We test for equivalence using Paired TOST with a hybrid margin: $\\delta = \\max({relative_margin_percent*100:.0f}\\%\\text{{ of mean}}, {absolute_margin_floor*100:.1f}\\text{{ pp}})$. TOST $p<0.05$ indicates the mean difference falls significantly within $[-\\delta, +\\delta]$. $d_z$ denotes paired effect size.}}")
+    lines.append("\\label{tab:rgc_l_vs_gc_dac}")
     lines.append("\\setlength{\\tabcolsep}{5pt}")
     lines.append("\\small")
     lines.append("\\begin{tabular}{llrrrrrcc}")
     lines.append("\\toprule")
-    lines.append("Dataset & Model & RGC$_L$ & SGC(DAC) & Diff (pp) & Diff 95\\% CI & $d_z$ & TOST $p$ & Result \\\\")
+    lines.append("Dataset & Model & RGC$_L$ & GC(DAC) & Diff (pp) & Diff 95\\% CI & $d_z$ & TOST $p$ & Result \\\\")
     lines.append("\\midrule")
 
     equivalence_count = 0
@@ -1054,22 +1054,22 @@ def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
         dataset = row['dataset']
         model = row['model_name']
 
-        sgc_mean = row.get('sgc_ece_mean', np.nan)
-        sgc_std = row.get('sgc_ece_std', np.nan)
-        sgc_count = row.get('sgc_ece_count', None)
-        sgc_dac_mean = row.get('sgc_dac_layers_ece_mean', np.nan)
-        sgc_dac_std = row.get('sgc_dac_layers_ece_std', np.nan)
-        sgc_dac_count = row.get('sgc_dac_layers_ece_count', None)
+        rgcl_mean = row.get('rgcl_ece_mean', np.nan)
+        rgcl_std = row.get('rgcl_ece_std', np.nan)
+        rgcl_count = row.get('rgcl_ece_count', None)
+        gc_dac_mean = row.get('gc_dac_layers_ece_mean', np.nan)
+        gc_dac_std = row.get('gc_dac_layers_ece_std', np.nan)
+        gc_dac_count = row.get('gc_dac_layers_ece_count', None)
 
-        sgc_str = format_ece_value(sgc_mean, sgc_std, sgc_count, inline_math=True)
-        sgc_dac_str = format_ece_value(sgc_dac_mean, sgc_dac_std, sgc_dac_count, inline_math=True)
+        rgcl_str = format_ece_value(rgcl_mean, rgcl_std, rgcl_count, inline_math=True)
+        gc_dac_str = format_ece_value(gc_dac_mean, gc_dac_std, gc_dac_count, inline_math=True)
 
-        sgc_vals = [v for v in row.get('sgc_ece_values', []) if pd.notna(v)]
-        sgc_dac_vals = [v for v in row.get('sgc_dac_layers_ece_values', []) if pd.notna(v)]
+        rgcl_vals = [v for v in row.get('rgcl_ece_values', []) if pd.notna(v)]
+        gc_dac_vals = [v for v in row.get('gc_dac_layers_ece_values', []) if pd.notna(v)]
 
         # Calculate hybrid margin: max(relative margin, absolute floor)
-        # Use the baseline (sgc_dac) mean for margin calculation
-        baseline_mean = sgc_dac_mean if pd.notna(sgc_dac_mean) else sgc_mean if pd.notna(sgc_mean) else 0.01
+        # Use the baseline (gc_dac) mean for margin calculation
+        baseline_mean = gc_dac_mean if pd.notna(gc_dac_mean) else rgcl_mean if pd.notna(rgcl_mean) else 0.01
         if pd.notna(baseline_mean) and baseline_mean > 0:
             relative_margin = baseline_mean * relative_margin_percent
             equivalence_margin = max(relative_margin, absolute_margin_floor)
@@ -1077,7 +1077,7 @@ def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
             equivalence_margin = absolute_margin_floor
 
         # Perform TOST test
-        tost_result = perform_tost_test(sgc_vals, sgc_dac_vals, equivalence_margin=equivalence_margin)
+        tost_result = perform_tost_test(rgcl_vals, gc_dac_vals, equivalence_margin=equivalence_margin)
         
         mean_diff = tost_result['mean_diff']
         diff_str = f"{mean_diff*100:+.2f}" if pd.notna(mean_diff) else "---"
@@ -1096,18 +1096,18 @@ def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
             tost_p, mean_diff, equivalence_margin, ci_lower, ci_upper
         )
         # Replace generic method names with actual method names
-        result_str = result_str.replace("Method 1", "RGC$_L$").replace("Method 2", "SGC(DAC)")
+        result_str = result_str.replace("Method 1", "RGC$_L$").replace("Method 2", "GC(DAC)")
         
         if tost_result['equivalence_established']:
             equivalence_count += 1
 
         SIGNIFICANCE_LOG.append({
-            'Comparison': 'RGC_L_vs_SGC_DAC',
+            'Comparison': 'RGC_L_vs_GC_DAC',
             'Dataset': dataset,
             'Training': 'aggregated',
             'Model': model,
-            'RGC_L_Mean': sgc_mean * 100 if pd.notna(sgc_mean) else np.nan,
-            'SGC_DAC_Mean': sgc_dac_mean * 100 if pd.notna(sgc_dac_mean) else np.nan,
+            'RGC_L_Mean': rgcl_mean * 100 if pd.notna(rgcl_mean) else np.nan,
+            'GC_DAC_Mean': gc_dac_mean * 100 if pd.notna(gc_dac_mean) else np.nan,
             'TOST_P_Value': tost_p,
             'Effect_Size': dz,
             'Conclusion': 'Equivalent' if tost_result['equivalence_established'] else 'Different',
@@ -1116,8 +1116,8 @@ def generate_sgc_vs_sgc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
         cells = [
             dataset.upper(),
             model,
-            sgc_str,
-            sgc_dac_str,
+            rgcl_str,
+            gc_dac_str,
             diff_str,
             ci_str,
             dz_str,
@@ -1140,7 +1140,7 @@ def main():
     from utils.logging_config import setup_logging
     setup_logging()
     parser = argparse.ArgumentParser(
-        description="Generate SGC-focused LaTeX tables for the paper"
+        description="Generate RGC-focused LaTeX tables for the paper"
     )
     default_results_dirs = (
         [Path('calibration_results')]
@@ -1214,7 +1214,7 @@ def main():
     
     # Save aggregated CSV for reference
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = args.output_dir / "sgc_aggregated_results.csv"
+    csv_path = args.output_dir / "rgc_aggregated_results.csv"
     aggregated_df.to_csv(csv_path, index=False)
     logger.info(f"Saved aggregated results to: {csv_path}")
     
@@ -1228,19 +1228,19 @@ def main():
     
     # Generate TOST comparison table (RGC_L vs RGC_C)
     logger.info("Generating TOST comparison table (RGC_L vs RGC_C)...")
-    tost_latex = generate_sgc_vs_coord_comparison_table(aggregated_df, relative_margin_percent=0.10, absolute_margin_floor=0.001)
+    tost_latex = generate_rgcl_vs_coord_comparison_table(aggregated_df, relative_margin_percent=0.10, absolute_margin_floor=0.001)
     tost_path = args.output_dir / "table_tost_rgc_l_vs_rgc_c.tex"
     with open(tost_path, 'w') as f:
         f.write(tost_latex)
     logger.info(f"Saved TOST comparison table to: {tost_path}")
     
-    # Generate TOST comparison table (RGC_L vs SGC(DAC))
-    logger.info("Generating TOST comparison table (RGC_L vs SGC(DAC))...")
-    tost_dac_latex = generate_sgc_vs_sgc_dac_comparison_table(aggregated_df, relative_margin_percent=0.10, absolute_margin_floor=0.001)
-    tost_dac_path = args.output_dir / "table_tost_rgc_l_vs_sgc_dac.tex"
+    # Generate TOST comparison table (RGC_L vs GC(DAC))
+    logger.info("Generating TOST comparison table (RGC_L vs GC(DAC))...")
+    tost_dac_latex = generate_rgcl_vs_gc_dac_comparison_table(aggregated_df, relative_margin_percent=0.10, absolute_margin_floor=0.001)
+    tost_dac_path = args.output_dir / "table_tost_rgc_l_vs_gc_dac.tex"
     with open(tost_dac_path, 'w') as f:
         f.write(tost_dac_latex)
-    logger.info(f"Saved TOST comparison table (RGC_L vs SGC(DAC)) to: {tost_dac_path}")
+    logger.info(f"Saved TOST comparison table (RGC_L vs GC(DAC)) to: {tost_dac_path}")
     
     # Print summary statistics
     print("\n" + "="*80)

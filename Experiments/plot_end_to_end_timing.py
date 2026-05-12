@@ -41,7 +41,7 @@ TIMING_CSV = Path("calibration_results/timing_aggregated.csv")
 OUTPUT_DIR = Path("figures")
 
 # Method names (adjust based on your CSV)
-RGCL_METHOD = "RGCL (SGC global random)"
+RGCL_METHOD = "RGCL (RGC global random)"
 RGCC_METHOD = "RGCC (coordinate sampling)"
 BASELINE_METHOD = "DAC_Orig"
 GEOMETRIC_PIXEL_METHOD = "Geometric Pixel"

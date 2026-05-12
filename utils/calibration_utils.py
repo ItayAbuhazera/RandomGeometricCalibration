@@ -30,6 +30,11 @@ logger = get_logger(__name__)
 ECE_BIN_COUNT = 15  # unified bin count for scalar ECE calculations
 
 
+def print_phase_header(method: str, phase: str) -> None:
+    """Print a console-visible method phase header without re-enabling INFO logs."""
+    tqdm.write(f"\n[{method}] {phase}")
+
+
 # =============================================================================
 # JSON ENCODING UTILITIES
 # =============================================================================
@@ -433,6 +438,8 @@ def run_standard_baselines(model_adapter,
     
     os.makedirs(output_dir, exist_ok=True)
 
+    print_phase_header("Standard Baselines", "start")
+    print_phase_header("Standard Baselines", "precompute model probabilities")
     probs_val = model_adapter.predict_proba(val_raw, batch_size=min(256, batch_size))
     probs_test = model_adapter.predict_proba(test_raw, batch_size=min(256, batch_size))
     
@@ -451,6 +458,7 @@ def run_standard_baselines(model_adapter,
     results = {}
 
     # 1) Uncalibrated
+    print_phase_header("Uncalibrated", "evaluate")
     uncal_start = time.perf_counter()
     probs_uncal = np.clip(probs_test, 1e-8, 1-1e-8)
     probs_uncal /= probs_uncal.sum(axis=1, keepdims=True)
@@ -462,6 +470,7 @@ def run_standard_baselines(model_adapter,
     logger.info("Calculating Temperature Scaling (post hoc) ...")
     ts_start = time.perf_counter()
     try:
+        print_phase_header("Temperature Scaling", "extract logits")
         logits_val = model_adapter.predict_logits(val_raw, batch_size=min(256, batch_size))
         logits_test = model_adapter.predict_logits(test_raw, batch_size=min(256, batch_size))
         
@@ -474,6 +483,7 @@ def run_standard_baselines(model_adapter,
                 eps = 1e-8
                 logits_val = np.log(np.clip(lv, eps, 1.0))
         
+        print_phase_header("Temperature Scaling", "fit")
         ts = TemperatureScaling()
         ts.fit(logits_val, val_labels)
         
@@ -484,6 +494,7 @@ def run_standard_baselines(model_adapter,
                 eps = 1e-8
                 logits_test = np.log(np.clip(lt, eps, 1.0))
         
+        print_phase_header("Temperature Scaling", "calibrate")
         probs_ts = ts.calibrate(logits_test)
         ts_elapsed = time.perf_counter() - ts_start
         results["temperature_scaling"] = _metrics(probs_ts)
@@ -499,11 +510,15 @@ def run_standard_baselines(model_adapter,
     iso_start = time.perf_counter()
     try:
         if 'logits_val' not in locals() or logits_val is None:
+            print_phase_header("Isotonic Top-Label", "extract validation logits")
             logits_val = model_adapter.predict_logits(val_raw, batch_size=min(256, batch_size))
         if 'logits_test' not in locals() or logits_test is None:
+            print_phase_header("Isotonic Top-Label", "extract test logits")
             logits_test = model_adapter.predict_logits(test_raw, batch_size=min(256, batch_size))
+        print_phase_header("Isotonic Top-Label", "fit")
         iso = TopLabelIsotonicCalibrator()
         iso.fit(logits_val, val_labels)
+        print_phase_header("Isotonic Top-Label", "calibrate")
         probs_iso = iso.calibrate(logits_test)
         iso_elapsed = time.perf_counter() - iso_start
         results["isotonic_toplabel"] = _metrics(probs_iso)
@@ -518,11 +533,15 @@ def run_standard_baselines(model_adapter,
     platt_start = time.perf_counter()
     try:
         if 'logits_val' not in locals() or logits_val is None:
+            print_phase_header("Platt Scaling", "extract validation logits")
             logits_val = model_adapter.predict_logits(val_raw, batch_size=min(256, batch_size))
         if 'logits_test' not in locals() or logits_test is None:
+            print_phase_header("Platt Scaling", "extract test logits")
             logits_test = model_adapter.predict_logits(test_raw, batch_size=min(256, batch_size))
+        print_phase_header("Platt Scaling", "fit")
         platt = PlattScaling()
         platt.fit(logits_val, val_labels)
+        print_phase_header("Platt Scaling", "calibrate")
         probs_platt = platt.calibrate(logits_test)
         platt_elapsed = time.perf_counter() - platt_start
         results["platt_scaling"] = _metrics(probs_platt)
@@ -537,11 +556,15 @@ def run_standard_baselines(model_adapter,
     beta_start = time.perf_counter()
     try:
         if 'logits_val' not in locals() or logits_val is None:
+            print_phase_header("Beta Calibration", "extract validation logits")
             logits_val = model_adapter.predict_logits(val_raw, batch_size=min(256, batch_size))
         if 'logits_test' not in locals() or logits_test is None:
+            print_phase_header("Beta Calibration", "extract test logits")
             logits_test = model_adapter.predict_logits(test_raw, batch_size=min(256, batch_size))
+        print_phase_header("Beta Calibration", "fit")
         beta = BetaCalibration()
         beta.fit(logits_val, val_labels)
+        print_phase_header("Beta Calibration", "calibrate")
         probs_beta = beta.calibrate(logits_test)
         beta_elapsed = time.perf_counter() - beta_start
         results["beta_calibration"] = _metrics(probs_beta)
@@ -604,8 +627,11 @@ def run_standard_baselines(model_adapter,
         # Extract features
         logger.info("   Extracting DAC features from intermediate layers...")
         dac_extract_start = time.perf_counter()
+        print_phase_header("Density-Aware Calibration", "extract train features")
         train_feats_list, _, train_labels_dac = extract_dac_features(raw_model, tr_loader, layer_names, dev)
+        print_phase_header("Density-Aware Calibration", "extract validation features")
         val_feats_list, logits_val_dac, val_labels_dac = extract_dac_features(raw_model, va_loader, layer_names, dev)
+        print_phase_header("Density-Aware Calibration", "extract test features")
         test_feats_list, logits_test_dac, _ = extract_dac_features(raw_model, te_loader, layer_names, dev)
         dac_extract_elapsed = time.perf_counter() - dac_extract_start
         
@@ -616,6 +642,7 @@ def run_standard_baselines(model_adapter,
         k_value = get_dac_k_value(dataset_name)
         logger.info(f"   Using k={k_value} for {dataset_name}")
         
+        print_phase_header("Density-Aware Calibration", "fit")
         dac_fit_start = time.perf_counter()
         dac = DensityAwareCalibrator(k=k_value, use_gpu=(device == 'cuda'))
         dac.fit(
@@ -626,6 +653,7 @@ def run_standard_baselines(model_adapter,
         )
         dac_fit_elapsed = time.perf_counter() - dac_fit_start
         
+        print_phase_header("Density-Aware Calibration", "calibrate")
         dac_calibrate_start = time.perf_counter()
         probs_dac = dac.calibrate(
             test_features_list=test_feats_list_np,
@@ -657,14 +685,17 @@ def run_standard_baselines(model_adapter,
         PYR = [4, 2, 1]
 
         geo_init_start = time.perf_counter()
+        print_phase_header("Geometric Physical Space", "extract train features")
         Xtr_c = compress_with_spp_jl(
             train_raw, final_output_dim=FINAL_DIM, pyramid_levels=PYR,
             seed=seed, batch_size=min(512, batch_size), device=device
         )
+        print_phase_header("Geometric Physical Space", "extract validation features")
         Xva_c = compress_with_spp_jl(
             val_raw, final_output_dim=FINAL_DIM, pyramid_levels=PYR,
             seed=seed, batch_size=min(512, batch_size), device=device
         )
+        print_phase_header("Geometric Physical Space", "extract test features")
         Xte_c = compress_with_spp_jl(
             test_raw, final_output_dim=FINAL_DIM, pyramid_levels=PYR,
             seed=seed, batch_size=min(512, batch_size), device=device
@@ -680,10 +711,12 @@ def run_standard_baselines(model_adapter,
         )
         geo_init_elapsed = time.perf_counter() - geo_init_start
 
+        print_phase_header("Geometric Physical Space", "fit")
         geo_fit_start = time.perf_counter()
         geo.fit(X_val_embed=Xva_c, X_val_original=val_raw, y_val=val_labels, fit_batch_size=batch_size)
         geo_fit_elapsed = time.perf_counter() - geo_fit_start
 
+        print_phase_header("Geometric Physical Space", "calibrate")
         geo_calibrate_start = time.perf_counter()
         probs_geo = geo.calibrate_batched(X_test_embed=Xte_c, X_test_original=test_raw, batch_size=batch_size)
         geo_calibrate_elapsed = time.perf_counter() - geo_calibrate_start

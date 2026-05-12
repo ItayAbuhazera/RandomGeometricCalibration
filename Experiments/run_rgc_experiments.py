@@ -53,6 +53,7 @@ from utils.calibration_utils import (
     run_standard_baselines,
     get_all_data_as_numpy,
     UncertaintyMetrics,
+    print_phase_header,
 )
 from utils.utils import discover_model_layers
 from Calibrators.geometric_calibrator import GeometricCalibrator
@@ -244,10 +245,10 @@ def filter_non_feature_layers(discovered_layers, model):
 
 
 # ============================================================================
-# FEATURE EXTRACTION FOR SGC (RGCL)
+# FEATURE EXTRACTION FOR RGC (RGCL)
 # ============================================================================
 
-def extract_and_aggregate_sgc_features(
+def extract_and_aggregate_rgc_features(
     model: torch.nn.Module,
     layer_names: List[str],
     train_loader: DataLoader,
@@ -257,9 +258,10 @@ def extract_and_aggregate_sgc_features(
     target_dim: int = 256,
     seed: int = 42,
     pooling_mode: str = "max",
+    method_label: str = "RGC",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
     """
-    Extract and aggregate features using SGC pipeline (RGCL).
+    Extract and aggregate features using RGC pipeline (RGCL).
     
     Pipeline:
     1. SPP pooling per layer (4x4, 2x2, 1x1)
@@ -272,12 +274,13 @@ def extract_and_aggregate_sgc_features(
     # Extract raw features from selected layers
     model.eval()
     
-    def extract_with_spp(loader):
+    def extract_with_spp(loader, split_name: str):
         """Extract features with SPP pooling."""
         all_features = []
         
         with torch.no_grad():
-            for batch_data in tqdm(loader, desc="Extracting features"):
+            desc = f"{method_label} extract {split_name} features"
+            for batch_data in tqdm(loader, desc=desc):
                 if isinstance(batch_data, (tuple, list)):
                     x = batch_data[0]
                 else:
@@ -327,9 +330,9 @@ def extract_and_aggregate_sgc_features(
         return np.concatenate(all_features, axis=0) if all_features else np.array([])
     
     # Extract from all loaders
-    train_features = extract_with_spp(train_loader) if train_loader else None
-    val_features = extract_with_spp(val_loader) if val_loader else None
-    test_features = extract_with_spp(test_loader) if test_loader else None
+    train_features = extract_with_spp(train_loader, "train") if train_loader else None
+    val_features = extract_with_spp(val_loader, "val") if val_loader else None
+    test_features = extract_with_spp(test_loader, "test") if test_loader else None
     
     # Random projection to target_dim
     np.random.seed(seed)
@@ -425,8 +428,10 @@ def run_coordinate_calibration(
     logger.info("\n" + "=" * 80)
     logger.info(f"RUNNING COORDINATE SAMPLING CALIBRATION (K={num_coordinates})")
     logger.info("=" * 80)
+    print_phase_header("RGCC", f"start (K={num_coordinates})")
     
     # Discover coordinate space
+    print_phase_header("RGCC", "discover coordinate space")
     is_dinov2 = model_name is not None and "dinov2" in model_name.lower()
     if is_dinov2:
         input_shape = (1, 3, 224, 224)
@@ -467,14 +472,17 @@ def run_coordinate_calibration(
         )
     
     # Extract coordinate features
+    print_phase_header("RGCC", "extract train features")
     start_extraction = time.perf_counter()
     
     train_coords = extract_coordinate_features(
         model, train_loader, sampling_plan, layer_map, global_order, device=device
     )
+    print_phase_header("RGCC", "extract validation features")
     val_coords = extract_coordinate_features(
         model, val_loader, sampling_plan, layer_map, global_order, device=device
     )
+    print_phase_header("RGCC", "extract test features")
     test_coords = extract_coordinate_features(
         model, test_loader, sampling_plan, layer_map, global_order, device=device
     )
@@ -491,6 +499,7 @@ def run_coordinate_calibration(
     
     # Fit geometric calibrator
     logger.info("Fitting geometric calibrator...")
+    print_phase_header("RGCC", "fit")
     start_fit = time.perf_counter()
     
     geo_cal = GeometricCalibrator(
@@ -512,6 +521,7 @@ def run_coordinate_calibration(
     
     # Calibrate test set
     logger.info("Calibrating test set...")
+    print_phase_header("RGCC", "calibrate")
     
     if precomputed_test_probs is not None:
         model_probs = precomputed_test_probs
@@ -608,6 +618,7 @@ def run_global_random_calibration(
     logger.info("\n" + "=" * 80)
     logger.info(f"RUNNING RGCL (L={num_layers}, d={target_dim})")
     logger.info("=" * 80)
+    print_phase_header("RGCL", f"start (L={num_layers}, d={target_dim})")
     
     # Use precomputed features or extract new ones
     if precomputed_train_features is not None:
@@ -663,7 +674,8 @@ def run_global_random_calibration(
             )
         
         # Extract features
-        train_features, val_features, test_features, extraction_info = extract_and_aggregate_sgc_features(
+        print_phase_header("RGCL", "extract features")
+        train_features, val_features, test_features, extraction_info = extract_and_aggregate_rgc_features(
             model=model,
             layer_names=selected_layers,
             train_loader=train_loader,
@@ -673,12 +685,14 @@ def run_global_random_calibration(
             target_dim=target_dim,
             seed=seed,
             pooling_mode=pooling_mode,
+            method_label="RGCL",
         )
     
     logger.info(f"Feature shape: {train_features.shape}")
     
     # Fit geometric calibrator
     logger.info("Fitting geometric calibrator...")
+    print_phase_header("RGCL", "fit")
     start_fit = time.perf_counter()
     
     geo_cal = GeometricCalibrator(
@@ -700,6 +714,7 @@ def run_global_random_calibration(
     
     # Calibrate test set
     logger.info("Calibrating test set...")
+    print_phase_header("RGCL", "calibrate")
     
     if precomputed_test_probs is not None:
         model_probs = precomputed_test_probs
@@ -755,10 +770,10 @@ def run_global_random_calibration(
 
 
 # ============================================================================
-# GC(DAC): SGC with DAC layer selection (for TOST comparison)
+# GC(DAC): GC with DAC layer selection (for TOST comparison)
 # ============================================================================
 
-def run_sgc_with_dac_layers(
+def run_gc_with_dac_layers(
     model: torch.nn.Module,
     model_name: str,
     dataset_name: str,
@@ -780,12 +795,13 @@ def run_sgc_with_dac_layers(
     test_loader: DataLoader = None,
 ) -> Dict[str, Any]:
     """
-    GC(DAC): SGC using DAC's layer selection instead of random selection.
+    GC(DAC): Geometric calibration using DAC's layer selection.
     For TOST equivalence comparison in Table 2.
     """
     logger.info("\n" + "=" * 80)
-    logger.info(f"RUNNING SGC WITH DAC LAYER SELECTION (d={target_dim})")
+    logger.info(f"RUNNING GC WITH DAC LAYER SELECTION (d={target_dim})")
     logger.info("=" * 80)
+    print_phase_header("GC(DAC)", f"start (d={target_dim})")
     
     # Get DAC's layer selection
     model_name_dac = model_name.lower() if model_name else model.__class__.__name__.lower()
@@ -828,8 +844,9 @@ def run_sgc_with_dac_layers(
             shuffle=False,
         )
     
-    # Extract features using SGC pipeline
-    train_features, val_features, test_features, extraction_info = extract_and_aggregate_sgc_features(
+    # Extract features using RGC pipeline
+    print_phase_header("GC(DAC)", "extract features")
+    train_features, val_features, test_features, extraction_info = extract_and_aggregate_rgc_features(
         model=model,
         layer_names=selected_layers,
         train_loader=train_loader,
@@ -839,11 +856,13 @@ def run_sgc_with_dac_layers(
         target_dim=target_dim,
         seed=seed,
         pooling_mode=pooling_mode,
+        method_label="GC(DAC)",
     )
     
     logger.info(f"Feature shape: {train_features.shape}")
     
     # Fit geometric calibrator
+    print_phase_header("GC(DAC)", "fit")
     start_fit = time.perf_counter()
     
     geo_cal = GeometricCalibrator(
@@ -864,6 +883,7 @@ def run_sgc_with_dac_layers(
     fit_time = time.perf_counter() - start_fit
     
     # Calibrate
+    print_phase_header("GC(DAC)", "calibrate")
     if precomputed_test_probs is not None:
         model_probs = precomputed_test_probs
     else:
@@ -905,10 +925,10 @@ def run_sgc_with_dac_layers(
 
 
 # ============================================================================
-# GC(TULIP): SGC with TULIP layer selection (for TOST comparison)
+# GC(TULIP): RGC with TULIP layer selection (for TOST comparison)
 # ============================================================================
 
-def run_sgc_with_tulip_layers(
+def run_rgc_with_tulip_layers(
     model: torch.nn.Module,
     model_name: str,
     dataset_name: str,
@@ -930,12 +950,13 @@ def run_sgc_with_tulip_layers(
     test_loader: DataLoader = None,
 ) -> Dict[str, Any]:
     """
-    GC(TULIP): SGC using TULIP's layer selection instead of random selection.
+    GC(TULIP): RGC using TULIP's layer selection instead of random selection.
     For TOST equivalence comparison in Figure 3.
     """
     logger.info("\n" + "=" * 80)
-    logger.info(f"RUNNING SGC WITH TULIP LAYER SELECTION (d={target_dim})")
+    logger.info(f"RUNNING RGC WITH TULIP LAYER SELECTION (d={target_dim})")
     logger.info("=" * 80)
+    print_phase_header("GC(TULIP)", f"start (d={target_dim})")
     
     # Get TULIP's layer selection
     selected_layers = select_tulip_layers(model, model_name)
@@ -963,8 +984,9 @@ def run_sgc_with_tulip_layers(
             shuffle=False,
         )
     
-    # Extract features using SGC pipeline
-    train_features, val_features, test_features, extraction_info = extract_and_aggregate_sgc_features(
+    # Extract features using RGC pipeline
+    print_phase_header("GC(TULIP)", "extract features")
+    train_features, val_features, test_features, extraction_info = extract_and_aggregate_rgc_features(
         model=model,
         layer_names=selected_layers,
         train_loader=train_loader,
@@ -974,11 +996,13 @@ def run_sgc_with_tulip_layers(
         target_dim=target_dim,
         seed=seed,
         pooling_mode=pooling_mode,
+        method_label="GC(TULIP)",
     )
     
     logger.info(f"Feature shape: {train_features.shape}")
     
     # Fit geometric calibrator
+    print_phase_header("GC(TULIP)", "fit")
     start_fit = time.perf_counter()
     
     geo_cal = GeometricCalibrator(
@@ -999,6 +1023,7 @@ def run_sgc_with_tulip_layers(
     fit_time = time.perf_counter() - start_fit
     
     # Calibrate
+    print_phase_header("GC(TULIP)", "calibrate")
     if precomputed_test_probs is not None:
         model_probs = precomputed_test_probs
     else:
@@ -1063,6 +1088,7 @@ def run_deep_ensemble_baseline(
     logger.info("\n" + "=" * 80)
     logger.info(f"RUNNING DEEP ENSEMBLE BASELINE (seeds: {ensemble_seeds})")
     logger.info("=" * 80)
+    print_phase_header("Deep Ensemble", f"start (seeds={ensemble_seeds})")
     
     from utils.model_utils import get_data_loaders
     
@@ -1072,6 +1098,7 @@ def run_deep_ensemble_baseline(
     ensemble_probs = []
     
     for seed in ensemble_seeds:
+        print_phase_header("Deep Ensemble", f"load and predict seed {seed}")
         model_path = construct_model_path(
             results_base_dir, training_method, dataset, model_name, seed
         )
@@ -1339,11 +1366,11 @@ def main():
     # ===== 5. GC(DAC) - For TOST comparison (Table 2, Figure 3) =====
     if not is_dinov2 and should_rerun_section(results, "gc_dac", GEO_REQUIRED_FIELDS):
         logger.info("\n" + "=" * 80)
-        logger.info("RUNNING GC(DAC) - SGC with DAC layer selection")
+        logger.info("RUNNING GC(DAC) - GC with DAC layer selection")
         logger.info("=" * 80)
         
         try:
-            gc_dac_results = run_sgc_with_dac_layers(
+            gc_dac_results = run_gc_with_dac_layers(
                 model=model,
                 model_name=args.model_name,
                 dataset_name=args.dataset,
@@ -1376,11 +1403,11 @@ def main():
     # ===== 6. GC(TULIP) - For TOST comparison (Figure 3) =====
     if should_rerun_section(results, "gc_tulip", GEO_REQUIRED_FIELDS):
         logger.info("\n" + "=" * 80)
-        logger.info("RUNNING GC(TULIP) - SGC with TULIP layer selection")
+        logger.info("RUNNING GC(TULIP) - RGC with TULIP layer selection")
         logger.info("=" * 80)
         
         try:
-            gc_tulip_results = run_sgc_with_tulip_layers(
+            gc_tulip_results = run_rgc_with_tulip_layers(
                 model=model,
                 model_name=args.model_name,
                 dataset_name=args.dataset,
