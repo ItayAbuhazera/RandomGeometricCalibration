@@ -31,18 +31,12 @@ logger = get_logger(__name__)
 # Global list to store detailed significance analysis
 SIGNIFICANCE_LOG = []
 
-# TULIP published results (ECE in decimal form)
+# TULIP published results (ECE values)
 # From TULIP paper Table 8
-# Note: Original paper reports 0.658±0.004 for CIFAR-100, but this appears to be a decimal
-# error (should be 0.0658). We've corrected to match their CIFAR-10 scale.
-# Note: format_ece_value multiplies by 100, so input 0.030 to display "3.00%"
 TULIP_PUBLISHED = {
     ('cifar10', 'baseline_cross_entropy', 'resnet50'): (0.030, 0.005),
     ('cifar10', 'baseline_cross_entropy', 'resnet101'): (0.025, 0.021),
     ('cifar10', 'baseline_cross_entropy', 'resnet152'): (0.026, 0.011),
-    # CIFAR-100 values corrected: divided by 10 to fix decimal point error in paper
-    # Original paper: 0.658±0.004 (decimal) -> Corrected: 0.0658±0.0004 (decimal)
-    # format_ece_value multiplies by 100, so 0.0658 -> displays as 6.58%
     ('cifar100', 'baseline_cross_entropy', 'resnet50'): (0.0658, 0.0004),
     ('cifar100', 'baseline_cross_entropy', 'resnet101'): (0.0671, 0.0021),
     ('cifar100', 'baseline_cross_entropy', 'resnet152'): (0.0662, 0.0055),

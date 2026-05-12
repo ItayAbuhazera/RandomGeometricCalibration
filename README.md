@@ -11,7 +11,8 @@ conda env create -f environment.yml
 conda activate geometric-internal-calibration
 pip install -r requirements.txt
 
-# Quick smoke test (~5 min): ResNet-18 / CIFAR-10 / seed 11
+# Quick smoke test: ResNet-18 / CIFAR-10 / seed 11, Table 1 methods only.
+# GC(DAC) and GC(TULIP) are skipped in --quick (used only for Table 2 TOST tests).
 python run_paper_experiments.py --quick
 
 # Full paper reproduction (14 model-dataset pairs x 3 seeds = 42 runs)

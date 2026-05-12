@@ -6,7 +6,7 @@ This script provides a clean entry point for running all paper experiments with
 sensible defaults and comprehensive error handling.
 
 Usage:
-    python run_paper_experiments.py --quick         # Quick test (~5 min)
+    python run_paper_experiments.py --quick         # Quick smoke test
     python run_paper_experiments.py --full          # All paper results (~hours)
     python run_paper_experiments.py --model resnet50 --dataset cifar100
 
@@ -359,6 +359,7 @@ def run_calibration(
     device: str = "cuda",
     eval_ensemble: bool = False,
     ensemble_seeds: Optional[List[int]] = None,
+    skip_tost_methods: bool = False,
     verbose: bool = True,
 ) -> Tuple[bool, Dict[str, Any]]:
     """
@@ -395,6 +396,9 @@ def run_calibration(
             "--eval-ensemble",
             "--ensemble-seeds", " ".join(map(str, ensemble_seeds))
         ])
+
+    if skip_tost_methods:
+        cmd.append("--skip-tost-methods")
 
     try:
         if verbose:
@@ -639,6 +643,7 @@ def run_single_experiment(
             device=device_str,
             eval_ensemble=getattr(args, 'eval_ensemble', False),
             ensemble_seeds=[int(s) for s in args.ensemble_seeds.split()],
+            skip_tost_methods=args.quick,
             verbose=True,
         )
 
@@ -708,7 +713,7 @@ def main():
         epilog="""
 Examples:
     python run_paper_experiments.py --quick
-        Quick test with ResNet-18 on CIFAR-10 (~5 minutes)
+        Quick smoke test with ResNet-18 on CIFAR-10
 
     python run_paper_experiments.py --full
         Run all paper configurations (14 model-dataset pairs x 3 seeds = 42 runs)
@@ -729,7 +734,7 @@ Examples:
     mode_group.add_argument(
         "--quick",
         action="store_true",
-        help="Quick test: ResNet-18 on CIFAR-10 with seed 11 (~5 minutes)",
+        help="Quick test: ResNet-18 on CIFAR-10 with seed 11",
     )
     mode_group.add_argument(
         "--full",

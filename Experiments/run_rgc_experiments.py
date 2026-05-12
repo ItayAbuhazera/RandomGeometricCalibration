@@ -1156,6 +1156,12 @@ def main():
     parser.add_argument("--num-layers", type=int, default=6, help="Number of random layers L (paper: 6)")
     parser.add_argument("--seed", type=int, default=12, help="Random seed")
     parser.add_argument("--force-recompute", action="store_true", help="Force recompute all results")
+    parser.add_argument(
+        "--skip-tost-methods",
+        action="store_true",
+        default=False,
+        help="Skip GC(DAC) and GC(TULIP). These methods are only used for the Table 2 TOST equivalence test and add substantial runtime.",
+    )
     
     # Paths
     parser.add_argument("--results-base-dir", type=str, default="results/results", help="Base directory for results")
@@ -1364,75 +1370,93 @@ def main():
         logger.info("RGCC already computed")
     
     # ===== 5. GC(DAC) - For TOST comparison (Table 2, Figure 3) =====
-    if not is_dinov2 and should_rerun_section(results, "gc_dac", GEO_REQUIRED_FIELDS):
-        logger.info("\n" + "=" * 80)
-        logger.info("RUNNING GC(DAC) - GC with DAC layer selection")
-        logger.info("=" * 80)
-        
-        try:
-            gc_dac_results = run_gc_with_dac_layers(
-                model=model,
-                model_name=args.model_name,
-                dataset_name=args.dataset,
-                model_adapter=model_adapter,
-                train_raw=train_raw,
-                train_labels=train_labels,
-                val_raw=val_raw,
-                val_labels=val_labels,
-                test_raw=test_raw,
-                test_labels=test_labels,
-                device=device,
-                target_dim=args.target_dimension,
-                batch_size=args.batch_size,
-                seed=args.seed,
-                pooling_mode=args.spp_pooling_mode,
-                    precomputed_test_probs=prediction_cache["test_probs"],
-            )
-            results["gc_dac"] = gc_dac_results
-            save_results_incrementally(results, output_file)
-        except Exception as e:
-            logger.error(f"GC(DAC) failed: {e}")
-            results["gc_dac"] = {"error": str(e)}
-            save_results_incrementally(results, output_file)
-    elif is_dinov2:
-        results["gc_dac"] = {"skipped": True, "reason": "DINOv2 not supported"}
+    if args.skip_tost_methods:
+        results["gc_dac"] = {"skipped": True, "reason": "skipped via --skip-tost-methods"}
         save_results_incrementally(results, output_file)
     else:
-        logger.info("GC(DAC) already computed")
+        gc_dac_skipped_via_flag = (
+            isinstance(results.get("gc_dac"), dict)
+            and results["gc_dac"].get("reason") == "skipped via --skip-tost-methods"
+        )
+        if not is_dinov2 and (
+            should_rerun_section(results, "gc_dac", GEO_REQUIRED_FIELDS) or gc_dac_skipped_via_flag
+        ):
+            logger.info("\n" + "=" * 80)
+            logger.info("RUNNING GC(DAC) - GC with DAC layer selection")
+            logger.info("=" * 80)
+            
+            try:
+                gc_dac_results = run_gc_with_dac_layers(
+                    model=model,
+                    model_name=args.model_name,
+                    dataset_name=args.dataset,
+                    model_adapter=model_adapter,
+                    train_raw=train_raw,
+                    train_labels=train_labels,
+                    val_raw=val_raw,
+                    val_labels=val_labels,
+                    test_raw=test_raw,
+                    test_labels=test_labels,
+                    device=device,
+                    target_dim=args.target_dimension,
+                    batch_size=args.batch_size,
+                    seed=args.seed,
+                    pooling_mode=args.spp_pooling_mode,
+                    precomputed_test_probs=prediction_cache["test_probs"],
+                )
+                results["gc_dac"] = gc_dac_results
+                save_results_incrementally(results, output_file)
+            except Exception as e:
+                logger.error(f"GC(DAC) failed: {e}")
+                results["gc_dac"] = {"error": str(e)}
+                save_results_incrementally(results, output_file)
+        elif is_dinov2:
+            results["gc_dac"] = {"skipped": True, "reason": "DINOv2 not supported"}
+            save_results_incrementally(results, output_file)
+        else:
+            logger.info("GC(DAC) already computed")
     
     # ===== 6. GC(TULIP) - For TOST comparison (Figure 3) =====
-    if should_rerun_section(results, "gc_tulip", GEO_REQUIRED_FIELDS):
-        logger.info("\n" + "=" * 80)
-        logger.info("RUNNING GC(TULIP) - RGC with TULIP layer selection")
-        logger.info("=" * 80)
-        
-        try:
-            gc_tulip_results = run_rgc_with_tulip_layers(
-                model=model,
-                model_name=args.model_name,
-                dataset_name=args.dataset,
-                model_adapter=model_adapter,
-                train_raw=train_raw,
-                train_labels=train_labels,
-                val_raw=val_raw,
-                val_labels=val_labels,
-                test_raw=test_raw,
-                test_labels=test_labels,
-                device=device,
-                target_dim=args.target_dimension,
-                batch_size=args.batch_size,
-                seed=args.seed,
-                pooling_mode=args.spp_pooling_mode,
-                    precomputed_test_probs=prediction_cache["test_probs"],
-            )
-            results["gc_tulip"] = gc_tulip_results
-            save_results_incrementally(results, output_file)
-        except Exception as e:
-            logger.error(f"GC(TULIP) failed: {e}")
-            results["gc_tulip"] = {"error": str(e)}
-            save_results_incrementally(results, output_file)
+    if args.skip_tost_methods:
+        results["gc_tulip"] = {"skipped": True, "reason": "skipped via --skip-tost-methods"}
+        save_results_incrementally(results, output_file)
     else:
-        logger.info("GC(TULIP) already computed")
+        gc_tulip_skipped_via_flag = (
+            isinstance(results.get("gc_tulip"), dict)
+            and results["gc_tulip"].get("reason") == "skipped via --skip-tost-methods"
+        )
+        if should_rerun_section(results, "gc_tulip", GEO_REQUIRED_FIELDS) or gc_tulip_skipped_via_flag:
+            logger.info("\n" + "=" * 80)
+            logger.info("RUNNING GC(TULIP) - RGC with TULIP layer selection")
+            logger.info("=" * 80)
+            
+            try:
+                gc_tulip_results = run_rgc_with_tulip_layers(
+                    model=model,
+                    model_name=args.model_name,
+                    dataset_name=args.dataset,
+                    model_adapter=model_adapter,
+                    train_raw=train_raw,
+                    train_labels=train_labels,
+                    val_raw=val_raw,
+                    val_labels=val_labels,
+                    test_raw=test_raw,
+                    test_labels=test_labels,
+                    device=device,
+                    target_dim=args.target_dimension,
+                    batch_size=args.batch_size,
+                    seed=args.seed,
+                    pooling_mode=args.spp_pooling_mode,
+                    precomputed_test_probs=prediction_cache["test_probs"],
+                )
+                results["gc_tulip"] = gc_tulip_results
+                save_results_incrementally(results, output_file)
+            except Exception as e:
+                logger.error(f"GC(TULIP) failed: {e}")
+                results["gc_tulip"] = {"error": str(e)}
+                save_results_incrementally(results, output_file)
+        else:
+            logger.info("GC(TULIP) already computed")
     
     # ===== SUMMARY =====
     logger.info("\n" + "=" * 80)
