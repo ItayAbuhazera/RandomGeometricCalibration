@@ -2,7 +2,9 @@
 data/cifar-*
 data/cifar-10-batches-py/
 data/cifar-10-python.tar.gz
-data/tiny-imagenet-200/
+data/tiny-imagenet-200/*
+!data/tiny-imagenet-200/
+!data/tiny-imagenet-200/README.md
 data/*.npy
 data/*.npz
 

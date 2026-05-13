@@ -4,9 +4,18 @@ This document lists the paper artifact commands for **"Semantic Geometric Calibr
 
 ## A. Environment Setup
 
+Conda:
+
 ```bash
 conda env create -f environment.yml
 conda activate random-geometric-calibration
+```
+
+Pip-only alternative:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -41,22 +50,20 @@ Tiny-ImageNet is not downloaded by this repository. Extract it so the expected d
 
 ```text
 data/tiny-imagenet-200/
+  train/
+  val/
+  wnids.txt
+  val/val_annotations.txt
 ```
 
 The full paper run fails early with an actionable message if this directory does not contain the expected Tiny-ImageNet files.
 
 ## F. TOST Table
 
-Table 2 uses paired TOST with δ = 0.5 pp = 0.005 fractional ECE. DINOv2 is included in Table 1 but excluded from the paired TOST configurations.
+Table 2 uses paired TOST with δ = 0.5 pp. DINOv2 is included in Table 1 but excluded from the paired TOST configurations.
 
 ```bash
 python Experiments/generate_paper_tables.py --input-dir calibration_results
-```
-
-The lightweight release check for the canonical TOST margin is:
-
-```bash
-python Experiments/check_tost_margin.py
 ```
 
 ## G. Hyperparameter Sensitivity

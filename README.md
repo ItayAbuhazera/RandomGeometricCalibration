@@ -4,9 +4,18 @@ Official code for **"Semantic Geometric Calibration in Randomized Neural Feature
 
 ## Installation
 
+Conda:
+
 ```bash
 conda env create -f environment.yml
 conda activate random-geometric-calibration
+```
+
+Pip-only alternative:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -57,6 +66,8 @@ Tiny-ImageNet must be downloaded manually and extracted into:
 ```text
 data/tiny-imagenet-200/
 ```
+
+See [data/tiny-imagenet-200/README.md](data/tiny-imagenet-200/README.md) for the expected layout.
 
 ## Citation
 
