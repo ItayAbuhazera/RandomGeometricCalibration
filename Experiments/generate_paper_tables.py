@@ -5,7 +5,8 @@ Generate the paper's LaTeX tables (Tables 1 and 2).
 This script aggregates the per-config calibration JSON files produced by
 run_rgc_experiments.py and emits:
     Table 1 - ECE comparison across datasets, models, and methods.
-    Table 2 - TOST equivalence tests (RGC_L vs DAC, RGC_L vs RGC_C).
+    Table 2 - TOST equivalence tests (RGC_L vs DAC, RGC_L vs RGC_C)
+              using δ = 0.5 pp.
 """
 
 import json
@@ -17,7 +18,6 @@ from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 import numpy as np
 import pandas as pd
-from scipy import stats
 import sys
 # Add project root to path (before importing utils)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +30,23 @@ logger = get_logger(__name__)
 
 # Global list to store detailed significance analysis
 SIGNIFICANCE_LOG = []
+
+# Paper Table 2 equivalence margin:
+# 0.005 fractional ECE equals 0.5 percentage points.
+TOST_MARGIN_ECE = 0.005
+TOST_MARGIN_DESCRIPTION = "δ = 0.5 pp"
+
+
+def get_scipy_stats():
+    """Import scipy.stats only when statistical calculations are requested."""
+    try:
+        from scipy import stats
+    except ImportError as exc:
+        raise ImportError(
+            "scipy is required to generate paper statistics. "
+            "Install the project dependencies with `pip install -r requirements.txt`."
+        ) from exc
+    return stats
 
 # TULIP published results (ECE values)
 # From TULIP paper Table 8
@@ -453,7 +470,7 @@ def aggregate_over_seeds(results: List[Dict[str, Any]]) -> pd.DataFrame:
 def perform_tost_test(
     scores1: List[float], 
     scores2: List[float], 
-    equivalence_margin: float = 0.0001
+    equivalence_margin: float = TOST_MARGIN_ECE
 ) -> Dict[str, Any]:
     """
     Perform Two One-Sided Tests (TOST) for equivalence testing.
@@ -461,7 +478,8 @@ def perform_tost_test(
     Args:
         scores1: First set of paired scores (e.g., RGC ECE values)
         scores2: Second set of paired scores (e.g., Coord ECE values)
-        equivalence_margin: Equivalence margin (delta) in same units as scores (default 0.005 = 0.5%)
+        equivalence_margin: Equivalence margin (delta) in fractional ECE units
+            (default: δ = 0.5 pp, i.e. 0.005 fractional ECE)
     
     Returns:
         Dictionary with:
@@ -494,6 +512,7 @@ def perform_tost_test(
     n = len(diff_arr)
     mean_diff = diff_arr.mean()
     std_diff = diff_arr.std(ddof=1)
+    stats = get_scipy_stats()
     
     # Standard error of the mean difference
     se_diff = std_diff / np.sqrt(n) if n > 1 else 0.0
@@ -609,6 +628,7 @@ def format_ece_value(mean_val: float, ci_val: float = None, std_val: float = Non
     if ci_val is not None and not pd.isna(ci_val) and ci_val > 0:
         error_val = ci_val
     elif std_val is not None and not pd.isna(std_val) and std_val > 0 and count is not None and count > 1:
+        stats = get_scipy_stats()
         # Calculate 95% CI from std using t-distribution
         # SEM = standard error of the mean
         sem = std_val / np.sqrt(count)
@@ -823,13 +843,16 @@ def generate_main_results_table(aggregated_df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def generate_rgcl_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relative_margin_percent: float = 0.10, absolute_margin_floor: float = 0.001) -> str:
+def generate_rgcl_vs_coord_comparison_table(
+    aggregated_df: pd.DataFrame,
+    equivalence_margin: float = TOST_MARGIN_ECE,
+) -> str:
     """Compare RGC (RGC_L) against Coordinate (RGC_C) ECE with TOST equivalence testing.
     
     Args:
         aggregated_df: DataFrame with aggregated results
-        relative_margin_percent: Relative margin as fraction of mean ECE (default 0.10 = 10%)
-        absolute_margin_floor: Absolute margin floor in same units as ECE (default 0.001 = 0.1pp)
+        equivalence_margin: Fixed paired TOST margin in fractional ECE units
+            (default: δ = 0.5 pp, i.e. 0.005 fractional ECE)
     """
     lines = []
 
@@ -879,7 +902,7 @@ def generate_rgcl_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relativ
     lines.append("% RGC_L vs RGC_C (RGC vs Coordinate) calibration comparison table")
     lines.append("\\begin{table*}[htbp]")
     lines.append("\\centering")
-    lines.append(f"\\caption{{RGC$_L$ vs RGC$_C$ calibration comparison (ECE \\%; lower is better). We report mean$\\pm$std over $n$ paired trials. We test for equivalence using Paired TOST with a hybrid margin: $\\delta = \\max({relative_margin_percent*100:.0f}\\%\\text{{ of mean}}, {absolute_margin_floor*100:.1f}\\text{{ pp}})$. TOST $p<0.05$ indicates the mean difference falls significantly within $[-\\delta, +\\delta]$. $d_z$ denotes paired effect size.}}")
+    lines.append("\\caption{RGC$_L$ vs RGC$_C$ calibration comparison (ECE \\%; lower is better). We report mean$\\pm$std over $n$ paired trials. We test for equivalence using Paired TOST with $\\delta = 0.5$ pp. TOST $p<0.05$ indicates the mean difference falls significantly within $[-\\delta, +\\delta]$. $d_z$ denotes paired effect size.}")
     lines.append("\\label{tab:rgc_l_vs_rgc_c}")
     lines.append("\\setlength{\\tabcolsep}{5pt}")
     lines.append("\\small")
@@ -906,15 +929,6 @@ def generate_rgcl_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relativ
 
         rgcl_vals = [v for v in row.get('rgcl_ece_values', []) if pd.notna(v)]
         coord_vals = [v for v in row.get('coord_ece_values', []) if pd.notna(v)]
-
-        # Calculate hybrid margin: max(relative margin, absolute floor)
-        # Use the baseline (coord) mean for margin calculation
-        baseline_mean = coord_mean if pd.notna(coord_mean) else rgcl_mean if pd.notna(rgcl_mean) else 0.01
-        if pd.notna(baseline_mean) and baseline_mean > 0:
-            relative_margin = baseline_mean * relative_margin_percent
-            equivalence_margin = max(relative_margin, absolute_margin_floor)
-        else:
-            equivalence_margin = absolute_margin_floor
 
         # Perform TOST test
         tost_result = perform_tost_test(rgcl_vals, coord_vals, equivalence_margin=equivalence_margin)
@@ -948,6 +962,7 @@ def generate_rgcl_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relativ
             'Model': model,
             'RGC_L_Mean': rgcl_mean * 100 if pd.notna(rgcl_mean) else np.nan,
             'RGC_C_Mean': coord_mean * 100 if pd.notna(coord_mean) else np.nan,
+            'Equivalence_Margin_Fractional_ECE': equivalence_margin,
             'TOST_P_Value': tost_p,
             'Effect_Size': dz,
             'Conclusion': 'Equivalent' if tost_result['equivalence_established'] else 'Different',
@@ -975,15 +990,18 @@ def generate_rgcl_vs_coord_comparison_table(aggregated_df: pd.DataFrame, relativ
     return "\n".join(lines)
 
 
-def generate_rgcl_vs_gc_dac_comparison_table(aggregated_df: pd.DataFrame, relative_margin_percent: float = 0.10, absolute_margin_floor: float = 0.001) -> str:
+def generate_rgcl_vs_gc_dac_comparison_table(
+    aggregated_df: pd.DataFrame,
+    equivalence_margin: float = TOST_MARGIN_ECE,
+) -> str:
     """Compare RGC_L against GC(DAC) with TOST equivalence testing.
     
     This table demonstrates that random layer selection performs comparably to DAC's carefully tuned layer selection.
     
     Args:
         aggregated_df: DataFrame with aggregated results
-        relative_margin_percent: Relative margin as fraction of mean ECE (default 0.10 = 10%)
-        absolute_margin_floor: Absolute margin floor in same units as ECE (default 0.001 = 0.1pp)
+        equivalence_margin: Fixed paired TOST margin in fractional ECE units
+            (default: δ = 0.5 pp, i.e. 0.005 fractional ECE)
     """
     lines = []
 
@@ -1033,7 +1051,7 @@ def generate_rgcl_vs_gc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
     lines.append("% RGC_L (random layers) vs GC(DAC) (DAC's layer selection) comparison table")
     lines.append("\\begin{table*}[htbp]")
     lines.append("\\centering")
-    lines.append(f"\\caption{{RGC$_L$ (random layers) vs GC(DAC) (DAC's layer selection) comparison (ECE \\%; lower is better). This demonstrates that random layer selection performs comparably to DAC's carefully tuned layer selection. We report mean$\\pm$std over $n$ paired trials. We test for equivalence using Paired TOST with a hybrid margin: $\\delta = \\max({relative_margin_percent*100:.0f}\\%\\text{{ of mean}}, {absolute_margin_floor*100:.1f}\\text{{ pp}})$. TOST $p<0.05$ indicates the mean difference falls significantly within $[-\\delta, +\\delta]$. $d_z$ denotes paired effect size.}}")
+    lines.append("\\caption{RGC$_L$ (random layers) vs GC(DAC) (DAC's layer selection) comparison (ECE \\%; lower is better). This demonstrates that random layer selection performs comparably to DAC's carefully tuned layer selection. We report mean$\\pm$std over $n$ paired trials. We test for equivalence using Paired TOST with $\\delta = 0.5$ pp. TOST $p<0.05$ indicates the mean difference falls significantly within $[-\\delta, +\\delta]$. $d_z$ denotes paired effect size.}")
     lines.append("\\label{tab:rgc_l_vs_gc_dac}")
     lines.append("\\setlength{\\tabcolsep}{5pt}")
     lines.append("\\small")
@@ -1060,15 +1078,6 @@ def generate_rgcl_vs_gc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
 
         rgcl_vals = [v for v in row.get('rgcl_ece_values', []) if pd.notna(v)]
         gc_dac_vals = [v for v in row.get('gc_dac_layers_ece_values', []) if pd.notna(v)]
-
-        # Calculate hybrid margin: max(relative margin, absolute floor)
-        # Use the baseline (gc_dac) mean for margin calculation
-        baseline_mean = gc_dac_mean if pd.notna(gc_dac_mean) else rgcl_mean if pd.notna(rgcl_mean) else 0.01
-        if pd.notna(baseline_mean) and baseline_mean > 0:
-            relative_margin = baseline_mean * relative_margin_percent
-            equivalence_margin = max(relative_margin, absolute_margin_floor)
-        else:
-            equivalence_margin = absolute_margin_floor
 
         # Perform TOST test
         tost_result = perform_tost_test(rgcl_vals, gc_dac_vals, equivalence_margin=equivalence_margin)
@@ -1102,6 +1111,7 @@ def generate_rgcl_vs_gc_dac_comparison_table(aggregated_df: pd.DataFrame, relati
             'Model': model,
             'RGC_L_Mean': rgcl_mean * 100 if pd.notna(rgcl_mean) else np.nan,
             'GC_DAC_Mean': gc_dac_mean * 100 if pd.notna(gc_dac_mean) else np.nan,
+            'Equivalence_Margin_Fractional_ECE': equivalence_margin,
             'TOST_P_Value': tost_p,
             'Effect_Size': dz,
             'Conclusion': 'Equivalent' if tost_result['equivalence_established'] else 'Different',
@@ -1134,7 +1144,7 @@ def main():
     from utils.logging_config import setup_logging
     setup_logging()
     parser = argparse.ArgumentParser(
-        description="Generate RGC-focused LaTeX tables for the paper"
+        description="Generate RGC-focused LaTeX tables for the paper; paired TOST uses δ = 0.5 pp."
     )
     default_results_dirs = (
         [Path('calibration_results')]
@@ -1221,16 +1231,16 @@ def main():
     logger.info(f"Saved Table 1 (Main Results) to: {main_results_path}")
     
     # Generate TOST comparison table (RGC_L vs RGC_C)
-    logger.info("Generating TOST comparison table (RGC_L vs RGC_C)...")
-    tost_latex = generate_rgcl_vs_coord_comparison_table(aggregated_df, relative_margin_percent=0.10, absolute_margin_floor=0.001)
+    logger.info("Generating TOST comparison table (RGC_L vs RGC_C, δ = 0.5 pp)...")
+    tost_latex = generate_rgcl_vs_coord_comparison_table(aggregated_df)
     tost_path = args.output_dir / "table_tost_rgc_l_vs_rgc_c.tex"
     with open(tost_path, 'w') as f:
         f.write(tost_latex)
     logger.info(f"Saved TOST comparison table to: {tost_path}")
     
     # Generate TOST comparison table (RGC_L vs GC(DAC))
-    logger.info("Generating TOST comparison table (RGC_L vs GC(DAC))...")
-    tost_dac_latex = generate_rgcl_vs_gc_dac_comparison_table(aggregated_df, relative_margin_percent=0.10, absolute_margin_floor=0.001)
+    logger.info("Generating TOST comparison table (RGC_L vs GC(DAC), δ = 0.5 pp)...")
+    tost_dac_latex = generate_rgcl_vs_gc_dac_comparison_table(aggregated_df)
     tost_dac_path = args.output_dir / "table_tost_rgc_l_vs_gc_dac.tex"
     with open(tost_dac_path, 'w') as f:
         f.write(tost_dac_latex)

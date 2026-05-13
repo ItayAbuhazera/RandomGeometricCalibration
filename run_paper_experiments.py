@@ -7,14 +7,18 @@ sweep with sensible defaults and comprehensive error handling.
 
 Usage:
     python run_paper_experiments.py --quick         # Quick smoke test
-    python run_paper_experiments.py --full          # Available full sweep (~hours)
+    python run_paper_experiments.py --cifar-full    # CIFAR-only convenience sweep
+    python run_paper_experiments.py --full          # Full paper Table 1 sweep
     python run_paper_experiments.py --model resnet50 --dataset cifar100
 
 Examples:
     # Quick test with single configuration
     python run_paper_experiments.py --quick
 
-    # Available full sweep (CIFAR configs only: 11 model-dataset pairs x 10 seeds = 110 runs)
+    # CIFAR-only convenience sweep (11 model-dataset pairs x 10 seeds = 110 runs)
+    python run_paper_experiments.py --cifar-full
+
+    # Full Table 1 sweep (14 model-dataset pairs x 10 seeds = 140 runs)
     python run_paper_experiments.py --full
 
     # Specific configuration
@@ -52,18 +56,16 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 # =============================================================================
-# AVAILABLE FULL-SWEEP CONFIGURATIONS
+# PAPER CONFIGURATIONS
 # =============================================================================
 
 MODELS = ["resnet18", "resnet50", "resnet101", "resnet152", "densenet121", "dinov2_large"]
 DATASETS = ["cifar10", "cifar100", "tiny_imagenet"]
 SEEDS = list(range(11, 21))
+TINY_IMAGENET_DIR = PROJECT_ROOT / "data" / "tiny-imagenet-200"
+TINY_IMAGENET_REQUIRED_PATHS = ("wnids.txt", "train", "val", "val/val_annotations.txt")
 
-# CIFAR model-dataset pairs included in the default --full sweep. DINOv2-Large
-# only appears for CIFAR-100 because it is an evaluation of a pretrained
-# backbone via linear probing. Tiny-ImageNet can still be run explicitly after
-# extracting the dataset, but it is not included in --full.
-FULL_CONFIGS = [
+TABLE1_CONFIGS = [
     # CIFAR-10
     ("densenet121", "cifar10"),
     ("resnet18", "cifar10"),
@@ -77,14 +79,26 @@ FULL_CONFIGS = [
     ("resnet50", "cifar100"),
     ("resnet101", "cifar100"),
     ("resnet152", "cifar100"),
-]
-
-PAPER_CONFIGS = [
-    *FULL_CONFIGS,
+    # Tiny-ImageNet
     ("resnet50", "tiny_imagenet"),
     ("resnet101", "tiny_imagenet"),
     ("resnet152", "tiny_imagenet"),
 ]
+
+CIFAR_CONFIGS = [
+    (model, dataset)
+    for model, dataset in TABLE1_CONFIGS
+    if dataset in {"cifar10", "cifar100"}
+]
+
+TOST_CONFIGS = [
+    (model, dataset)
+    for model, dataset in TABLE1_CONFIGS
+    if model != "dinov2_large"
+]
+
+# Backward-compatible import name used by existing helper scripts.
+PAPER_CONFIGS = TABLE1_CONFIGS
 
 # Default hyperparameters (from paper Section 4)
 DEFAULT_NUM_LAYERS = 6       # L in paper
@@ -285,6 +299,31 @@ def is_cuda_oom_error(error_message: str) -> bool:
         "cudaErrorMemoryAllocation",
     ]
     return any(indicator in error_message for indicator in oom_indicators)
+
+
+def validate_required_datasets(configs: List[Tuple[str, str, int]]) -> None:
+    """Fail early with an actionable message if a manual dataset is missing."""
+    needs_tiny_imagenet = any(dataset == "tiny_imagenet" for _, dataset, _ in configs)
+    if not needs_tiny_imagenet:
+        return
+
+    missing_paths = [
+        relative_path
+        for relative_path in TINY_IMAGENET_REQUIRED_PATHS
+        if not (TINY_IMAGENET_DIR / relative_path).exists()
+    ]
+    if not missing_paths:
+        return
+
+    expected = "data/tiny-imagenet-200/"
+    missing = ", ".join(missing_paths)
+    raise FileNotFoundError(
+        "Tiny-ImageNet is required for this run but is not available. "
+        f"Expected an extracted dataset at {expected} with train/, val/, wnids.txt, and val/val_annotations.txt. "
+        f"Missing under {expected}: {missing}. "
+        "CIFAR-10/100 are downloaded automatically by torchvision; Tiny-ImageNet must be downloaded manually. "
+        "For a CIFAR-only run, use --cifar-full."
+    )
 
 
 # =============================================================================
@@ -723,10 +762,13 @@ def main():
         epilog="""
 Examples:
     python run_paper_experiments.py --quick
-        Quick smoke test with ResNet-18 on CIFAR-10
+        Quick smoke test with ResNet-18 on CIFAR-10 / seed 11
+
+    python run_paper_experiments.py --cifar-full
+        Run the CIFAR-only convenience sweep (11 model-dataset pairs x 10 seeds = 110 runs)
 
     python run_paper_experiments.py --full
-        Run the available full sweep (CIFAR only: 11 model-dataset pairs x 10 seeds = 110 runs)
+        Run the full paper Table 1 sweep (14 model-dataset pairs x 10 seeds = 140 runs)
 
     python run_paper_experiments.py --model resnet50 --dataset cifar100
         Run specific configuration
@@ -747,9 +789,14 @@ Examples:
         help="Quick test: ResNet-18 on CIFAR-10 with seed 11",
     )
     mode_group.add_argument(
+        "--cifar-full",
+        action="store_true",
+        help="CIFAR-only convenience sweep: 11 model-dataset pairs x 10 seeds (110 configurations)",
+    )
+    mode_group.add_argument(
         "--full",
         action="store_true",
-        help="Available full sweep: CIFAR-only, 11 model-dataset pairs x 10 seeds (110 configurations)",
+        help="Full paper Table 1 sweep: all 14 model-dataset pairs x 10 seeds (140 configurations), including Tiny-ImageNet",
     )
 
     # Specific configuration
@@ -841,19 +888,29 @@ Examples:
     if args.quick:
         configs = [("resnet18", "cifar10", 11)]
         mode_name = "QUICK"
-        mode_desc = "Testing ResNet-18 on CIFAR-10"
+        mode_desc = "Testing ResNet-18 on CIFAR-10 / seed 11"
+    elif args.cifar_full:
+        configs = [(m, d, s) for (m, d) in CIFAR_CONFIGS for s in SEEDS]
+        mode_name = "CIFAR-FULL"
+        mode_desc = f"{len(configs)} configurations ({len(CIFAR_CONFIGS)} CIFAR model-dataset pairs x {len(SEEDS)} seeds)"
     elif args.full:
-        configs = [(m, d, s) for (m, d) in FULL_CONFIGS for s in SEEDS]
+        configs = [(m, d, s) for (m, d) in TABLE1_CONFIGS for s in SEEDS]
         mode_name = "FULL"
-        mode_desc = f"{len(configs)} configurations ({len(FULL_CONFIGS)} model-dataset pairs x {len(SEEDS)} seeds)"
+        mode_desc = f"{len(configs)} configurations ({len(TABLE1_CONFIGS)} Table 1 model-dataset pairs x {len(SEEDS)} seeds)"
     elif args.model and args.dataset:
         configs = [(args.model, args.dataset, args.seed)]
         mode_name = "CUSTOM"
         mode_desc = f"{args.model} on {args.dataset} (seed={args.seed})"
     else:
         parser.print_help()
-        print("\nPlease specify --quick, --full, or both --model and --dataset")
+        print("\nPlease specify --quick, --cifar-full, --full, or both --model and --dataset")
         sys.exit(1)
+
+    try:
+        validate_required_datasets(configs)
+    except FileNotFoundError as exc:
+        print(f"\nERROR: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     # Print header
     print("\n" + "=" * 60)
@@ -900,8 +957,8 @@ Examples:
                 status="FAILED",
                 error_message=str(e),
             ))
-            if not args.full:
-                # In non-full mode, stop on first error
+            if mode_name in {"QUICK", "CUSTOM"}:
+                # In single-run modes, stop on first error.
                 break
 
     # Calculate total time

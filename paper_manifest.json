@@ -1,0 +1,168 @@
+{
+  "paper_title": "Semantic Geometric Calibration in Randomized Neural Feature Space",
+  "venue": "IJCAI 2026",
+  "authors": [
+    "Itay Abuhazera",
+    "Liron Cohen",
+    "Gil Einziger"
+  ],
+  "default_hyperparameters": {
+    "num_layers": 6,
+    "target_dimension": 256,
+    "num_coordinates": 256,
+    "k_neighbors": 1,
+    "ece_bins": 15,
+    "tost_margin_fractional_ece": 0.005,
+    "tost_margin_percentage_points": 0.5
+  },
+  "seeds": [
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "table1_configs": [
+    {
+      "dataset": "cifar10",
+      "model": "densenet121"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet18"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet50"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet101"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet152"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "densenet121"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "dinov2_large"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet18"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet50"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet101"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet152"
+    },
+    {
+      "dataset": "tiny_imagenet",
+      "model": "resnet50"
+    },
+    {
+      "dataset": "tiny_imagenet",
+      "model": "resnet101"
+    },
+    {
+      "dataset": "tiny_imagenet",
+      "model": "resnet152"
+    }
+  ],
+  "tost_configs": [
+    {
+      "dataset": "cifar10",
+      "model": "densenet121"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet18"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet50"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet101"
+    },
+    {
+      "dataset": "cifar10",
+      "model": "resnet152"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "densenet121"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet18"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet50"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet101"
+    },
+    {
+      "dataset": "cifar100",
+      "model": "resnet152"
+    },
+    {
+      "dataset": "tiny_imagenet",
+      "model": "resnet50"
+    },
+    {
+      "dataset": "tiny_imagenet",
+      "model": "resnet101"
+    },
+    {
+      "dataset": "tiny_imagenet",
+      "model": "resnet152"
+    }
+  ],
+  "hyperparameter_sensitivity_grid": {
+    "L": [
+      2,
+      4,
+      6,
+      8,
+      10,
+      12
+    ],
+    "d": [
+      64,
+      128,
+      256,
+      512,
+      1024
+    ]
+  },
+  "expected_output_layout": [
+    "results/models/{dataset}/{model}/seed{seed}/best_model.pth",
+    "calibration_results/{model}/{dataset}/baseline/{seed}/paper_results.json"
+  ],
+  "notes": [
+    "CIFAR-10/100 are downloaded automatically by torchvision.",
+    "Tiny-ImageNet must be manually extracted into data/tiny-imagenet-200/.",
+    "DINOv2 is included in Table 1 but excluded from the paired TOST table because GC(DAC)/paired TOST is not applicable for that configuration."
+  ]
+}
