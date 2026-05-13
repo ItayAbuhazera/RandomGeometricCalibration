@@ -256,3 +256,55 @@ class ClasswiseECELoss(nn.Module):
 
         sce = torch.mean(per_class_sce)
         return sce
+
+
+def calculate_adaptive_ece(probs: np.ndarray, labels: np.ndarray, n_bins: int = 15) -> float:
+    """Adaptive Expected Calibration Error (equal-frequency binning, M=15)."""
+    confidences = np.max(probs, axis=1)
+    predictions = np.argmax(probs, axis=1)
+    accuracies = (predictions == labels).astype(float)
+
+    n_samples = len(confidences)
+    sorted_indices = np.argsort(confidences)
+    sorted_confidences = confidences[sorted_indices]
+
+    bin_boundaries = np.interp(
+        np.linspace(0, n_samples, n_bins + 1),
+        np.arange(n_samples),
+        sorted_confidences,
+    )
+
+    ece = 0.0
+    for i in range(n_bins):
+        bin_lower = bin_boundaries[i]
+        bin_upper = bin_boundaries[i + 1]
+        if i == n_bins - 1:
+            in_bin = (confidences >= bin_lower) & (confidences <= bin_upper)
+        else:
+            in_bin = (confidences >= bin_lower) & (confidences < bin_upper)
+        prop_in_bin = np.mean(in_bin)
+        if prop_in_bin > 0:
+            accuracy_in_bin = np.mean(accuracies[in_bin])
+            avg_confidence_in_bin = np.mean(confidences[in_bin])
+            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+    return float(ece)
+
+
+def calculate_calibration_mce(probs: np.ndarray, labels: np.ndarray, n_bins: int = 15) -> float:
+    """Maximum Calibration Error: worst non-empty confidence-bin gap (M=15)."""
+    confidences = np.max(probs, axis=1)
+    predictions = np.argmax(probs, axis=1)
+    accuracies = (predictions == labels).astype(float)
+
+    max_error = 0.0
+    bin_boundaries = np.linspace(0.0, 1.0, n_bins + 1)
+    for i in range(n_bins):
+        if i == n_bins - 1:
+            in_bin = (confidences >= bin_boundaries[i]) & (confidences <= bin_boundaries[i + 1])
+        else:
+            in_bin = (confidences >= bin_boundaries[i]) & (confidences < bin_boundaries[i + 1])
+        if np.any(in_bin):
+            accuracy_in_bin = np.mean(accuracies[in_bin])
+            avg_confidence_in_bin = np.mean(confidences[in_bin])
+            max_error = max(max_error, abs(accuracy_in_bin - avg_confidence_in_bin))
+    return float(max_error)

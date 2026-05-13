@@ -57,7 +57,11 @@ from utils.calibration_utils import (
 )
 from utils.utils import discover_model_layers
 from Calibrators.geometric_calibrator import GeometricCalibrator
-from Metrics.metrics import expected_calibration_error
+from Metrics.metrics import (
+    calculate_adaptive_ece,
+    calculate_calibration_mce,
+    expected_calibration_error,
+)
 from utils.coordinate_extraction import (
     discover_coordinate_space,
     plan_coordinate_extraction,
@@ -84,37 +88,6 @@ def calculate_ece(probs: np.ndarray, labels: np.ndarray, n_bins: int = 15) -> fl
     preds = np.argmax(probs, axis=1) if probs.ndim > 1 else (probs > 0.5).astype(int)
     confs = np.max(probs, axis=1) if probs.ndim > 1 else probs
     return expected_calibration_error(confs, preds, labels, num_bins=n_bins)
-
-
-def calculate_adaptive_ece(probs: np.ndarray, labels: np.ndarray, n_bins: int = 15) -> float:
-    """Calculate Adaptive ECE (equal-mass bins)."""
-    confidences = np.max(probs, axis=1)
-    predictions = np.argmax(probs, axis=1)
-    accuracies = (predictions == labels).astype(float)
-    
-    # Sort by confidence
-    sorted_indices = np.argsort(confidences)
-    sorted_confidences = confidences[sorted_indices]
-    sorted_accuracies = accuracies[sorted_indices]
-    
-    # Equal-mass bins
-    n_samples = len(confidences)
-    samples_per_bin = n_samples // n_bins
-    
-    ece = 0.0
-    for i in range(n_bins):
-        start_idx = i * samples_per_bin
-        end_idx = start_idx + samples_per_bin if i < n_bins - 1 else n_samples
-        
-        bin_confidences = sorted_confidences[start_idx:end_idx]
-        bin_accuracies = sorted_accuracies[start_idx:end_idx]
-        
-        if len(bin_confidences) > 0:
-            avg_conf = np.mean(bin_confidences)
-            avg_acc = np.mean(bin_accuracies)
-            ece += (len(bin_confidences) / n_samples) * abs(avg_acc - avg_conf)
-    
-    return ece
 
 
 def calculate_accuracy(probs: np.ndarray, labels: np.ndarray) -> float:
@@ -201,6 +174,20 @@ def is_section_complete(results: Dict[str, Any], section_name: str, required_fie
 def should_rerun_section(results: Dict[str, Any], section_name: str, required_fields: List[str] = None) -> bool:
     """Check if section needs to be rerun."""
     return not is_section_complete(results, section_name, required_fields)
+
+
+def standard_baselines_missing_mce(results: Dict[str, Any]) -> bool:
+    """Return True when completed standard baselines lack opt-in MCE fields."""
+    baselines = results.get("standard_baselines")
+    if not isinstance(baselines, dict) or baselines.get("skipped", False):
+        return False
+
+    for method_result in baselines.values():
+        if not isinstance(method_result, dict) or method_result.get("skipped", False):
+            continue
+        if method_result.get("ece") is not None and "mce" not in method_result:
+            return True
+    return False
 
 
 GEO_REQUIRED_FIELDS = ["ece", "calibrator_params"]
@@ -418,6 +405,7 @@ def run_coordinate_calibration(
     train_loader: DataLoader = None,
     val_loader: DataLoader = None,
     test_loader: DataLoader = None,
+    emit_beyond_ece: bool = False,
 ) -> Dict[str, Any]:
     """
     RGCC: Coordinate-based random sampling calibration.
@@ -549,6 +537,7 @@ def run_coordinate_calibration(
     # Metrics
     ece = calculate_ece(calibrated_probs, test_labels)
     adaptive_ece = calculate_adaptive_ece(calibrated_probs, test_labels)
+    mce = calculate_calibration_mce(calibrated_probs, test_labels) if emit_beyond_ece else None
     accuracy = calculate_accuracy(calibrated_probs, test_labels)
 
     throughput = len(test_labels) / calibrate_time if calibrate_time > 0 else 0
@@ -557,9 +546,11 @@ def run_coordinate_calibration(
     logger.info(f"\nRGCC Results:")
     logger.info(f"  ECE: {ece:.6f}")
     logger.info(f"  Adaptive ECE: {adaptive_ece:.6f}")
+    if emit_beyond_ece:
+        logger.info(f"  MCE: {mce:.6f}")
     logger.info(f"  Accuracy: {accuracy:.4f}%")
 
-    return {
+    result = {
         "method": f"RGCC (K={num_coordinates})",
         "ece": float(ece),
         "adaptive_ece": float(adaptive_ece),
@@ -572,6 +563,9 @@ def run_coordinate_calibration(
         "peak_memory_mb": float(peak_memory_mb),
         "calibrator_params": geo_cal.get_params(),
     }
+    if emit_beyond_ece:
+        result["mce"] = float(mce)
+    return result
 
 
 # ============================================================================
@@ -608,6 +602,7 @@ def run_global_random_calibration(
     val_loader: DataLoader = None,
     test_loader: DataLoader = None,
     training_method: str = None,
+    emit_beyond_ece: bool = False,
 ) -> Dict[str, Any]:
     """
     RGCL: Random Geometric Calibration with Layer sampling.
@@ -742,6 +737,7 @@ def run_global_random_calibration(
     # Metrics
     ece = calculate_ece(calibrated_probs, test_labels)
     adaptive_ece = calculate_adaptive_ece(calibrated_probs, test_labels)
+    mce = calculate_calibration_mce(calibrated_probs, test_labels) if emit_beyond_ece else None
     accuracy = calculate_accuracy(calibrated_probs, test_labels)
 
     throughput = len(test_labels) / calibrate_time if calibrate_time > 0 else 0
@@ -750,9 +746,11 @@ def run_global_random_calibration(
     logger.info(f"\nRGCL Results:")
     logger.info(f"  ECE: {ece:.6f}")
     logger.info(f"  Adaptive ECE: {adaptive_ece:.6f}")
+    if emit_beyond_ece:
+        logger.info(f"  MCE: {mce:.6f}")
     logger.info(f"  Accuracy: {accuracy:.4f}%")
 
-    return {
+    result = {
         "method": f"RGCL (L={num_layers}, d={target_dim})",
         "ece": float(ece),
         "adaptive_ece": float(adaptive_ece),
@@ -767,6 +765,9 @@ def run_global_random_calibration(
         "peak_memory_mb": float(peak_memory_mb),
         "calibrator_params": geo_cal.get_params(),
     }
+    if emit_beyond_ece:
+        result["mce"] = float(mce)
+    return result
 
 
 # ============================================================================
@@ -793,6 +794,7 @@ def run_gc_with_dac_layers(
     train_loader: DataLoader = None,
     val_loader: DataLoader = None,
     test_loader: DataLoader = None,
+    emit_beyond_ece: bool = False,
 ) -> Dict[str, Any]:
     """
     GC(DAC): Geometric calibration using DAC's layer selection.
@@ -903,12 +905,15 @@ def run_gc_with_dac_layers(
     # Metrics
     ece = calculate_ece(calibrated_probs, test_labels)
     adaptive_ece = calculate_adaptive_ece(calibrated_probs, test_labels)
+    mce = calculate_calibration_mce(calibrated_probs, test_labels) if emit_beyond_ece else None
     accuracy = calculate_accuracy(calibrated_probs, test_labels)
 
     logger.info(f"\nGC(DAC) Results:")
     logger.info(f"  ECE: {ece:.6f}")
+    if emit_beyond_ece:
+        logger.info(f"  MCE: {mce:.6f}")
 
-    return {
+    result = {
         "method": f"GC(DAC) (L={num_layers}, d={target_dim})",
         "ece": float(ece),
         "adaptive_ece": float(adaptive_ece),
@@ -922,6 +927,9 @@ def run_gc_with_dac_layers(
         "calibrate_time_s": float(calibrate_time),
         "calibrator_params": geo_cal.get_params(),
     }
+    if emit_beyond_ece:
+        result["mce"] = float(mce)
+    return result
 
 
 # ============================================================================
@@ -948,6 +956,7 @@ def run_rgc_with_tulip_layers(
     train_loader: DataLoader = None,
     val_loader: DataLoader = None,
     test_loader: DataLoader = None,
+    emit_beyond_ece: bool = False,
 ) -> Dict[str, Any]:
     """
     GC(TULIP): RGC using TULIP's layer selection instead of random selection.
@@ -1043,12 +1052,15 @@ def run_rgc_with_tulip_layers(
     # Metrics
     ece = calculate_ece(calibrated_probs, test_labels)
     adaptive_ece = calculate_adaptive_ece(calibrated_probs, test_labels)
+    mce = calculate_calibration_mce(calibrated_probs, test_labels) if emit_beyond_ece else None
     accuracy = calculate_accuracy(calibrated_probs, test_labels)
 
     logger.info(f"\nGC(TULIP) Results:")
     logger.info(f"  ECE: {ece:.6f}")
+    if emit_beyond_ece:
+        logger.info(f"  MCE: {mce:.6f}")
 
-    return {
+    result = {
         "method": f"GC(TULIP) (L={num_layers}, d={target_dim})",
         "ece": float(ece),
         "adaptive_ece": float(adaptive_ece),
@@ -1062,6 +1074,9 @@ def run_rgc_with_tulip_layers(
         "calibrate_time_s": float(calibrate_time),
         "calibrator_params": geo_cal.get_params(),
     }
+    if emit_beyond_ece:
+        result["mce"] = float(mce)
+    return result
 
 
 # ============================================================================
@@ -1080,6 +1095,7 @@ def run_deep_ensemble_baseline(
     val_labels: np.ndarray,
     device: torch.device,
     batch_size: int = 128,
+    emit_beyond_ece: bool = False,
 ) -> Dict[str, Any]:
     """
     Run deep ensemble baseline (D.Ens in Table 1).
@@ -1123,13 +1139,16 @@ def run_deep_ensemble_baseline(
     # Metrics
     ece = calculate_ece(avg_probs, test_labels)
     adaptive_ece = calculate_adaptive_ece(avg_probs, test_labels)
+    mce = calculate_calibration_mce(avg_probs, test_labels) if emit_beyond_ece else None
     accuracy = calculate_accuracy(avg_probs, test_labels)
 
     logger.info(f"\nDeep Ensemble Results:")
     logger.info(f"  ECE: {ece:.6f}")
+    if emit_beyond_ece:
+        logger.info(f"  MCE: {mce:.6f}")
     logger.info(f"  Ensemble size: {len(ensemble_probs)}")
 
-    return {
+    result = {
         "method": f"Deep Ensemble (n={len(ensemble_probs)})",
         "ece": float(ece),
         "adaptive_ece": float(adaptive_ece),
@@ -1137,6 +1156,9 @@ def run_deep_ensemble_baseline(
         "ensemble_size": len(ensemble_probs),
         "ensemble_seeds": ensemble_seeds[:len(ensemble_probs)],
     }
+    if emit_beyond_ece:
+        result["mce"] = float(mce)
+    return result
 
 
 # ============================================================================
@@ -1167,6 +1189,14 @@ def main():
         action="store_true",
         default=False,
         help="Skip standard calibration baselines. Used by the hyperparameter sweep runner, which only needs RGCL/RGCC.",
+    )
+    parser.add_argument(
+        "--emit-beyond-ece",
+        action="store_true",
+        default=False,
+        help="Also compute and store top-label MCE in the per-config JSON. "
+             "Adaptive ECE is always stored. MCE is opt-in because computing "
+             "it requires retaining test-time probabilities for all methods.",
     )
     
     # Paths
@@ -1254,8 +1284,12 @@ def main():
     }
     
     # Save experiment config
+    experiment_args = vars(args).copy()
+    if not args.emit_beyond_ece:
+        experiment_args.pop("emit_beyond_ece", None)
+
     results["experiment_config"] = {
-        **vars(args),
+        **experiment_args,
         "num_classes": num_classes,
         "train_size": len(train_labels),
         "val_size": len(val_labels),
@@ -1270,7 +1304,10 @@ def main():
             "reason": "skipped via --skip-standard-baselines",
         }
         save_results_incrementally(results, output_file)
-    elif should_rerun_section(results, "standard_baselines", ["uncalibrated"]):
+    elif (
+        should_rerun_section(results, "standard_baselines", ["uncalibrated"])
+        or (args.emit_beyond_ece and standard_baselines_missing_mce(results))
+    ):
         logger.info("\n" + "=" * 80)
         logger.info("RUNNING STANDARD BASELINES")
         logger.info("=" * 80)
@@ -1287,6 +1324,7 @@ def main():
             train_labels=train_labels,
             seed=args.seed,
             device=str(device),
+            emit_beyond_ece=args.emit_beyond_ece,
         )
         
         # Skip DAC for DINOv2
@@ -1303,7 +1341,10 @@ def main():
     
     # ===== 2. DEEP ENSEMBLE (Table 1: D.Ens) =====
     if args.eval_ensemble:
-        if should_rerun_section(results, "deep_ensemble", ["ece"]):
+        deep_ensemble_required_fields = ["ece"]
+        if args.emit_beyond_ece:
+            deep_ensemble_required_fields.append("mce")
+        if should_rerun_section(results, "deep_ensemble", deep_ensemble_required_fields):
             ensemble_seeds = [int(s) for s in args.ensemble_seeds.split()]
             try:
                 ensemble_results = run_deep_ensemble_baseline(
@@ -1318,6 +1359,7 @@ def main():
                     val_labels=val_labels,
                     device=device,
                     batch_size=args.batch_size,
+                    emit_beyond_ece=args.emit_beyond_ece,
                 )
                 results["deep_ensemble"] = ensemble_results
                 save_results_incrementally(results, output_file)
@@ -1328,7 +1370,9 @@ def main():
             logger.info("Deep ensemble already computed")
     
     # ===== 3. RGCL (Table 1, Table 2, Figures 2-4) =====
-    if should_rerun_section(results, "rgcl", GEO_REQUIRED_FIELDS):
+    geo_required_fields = GEO_REQUIRED_FIELDS + (["mce"] if args.emit_beyond_ece else [])
+
+    if should_rerun_section(results, "rgcl", geo_required_fields):
         logger.info("\n" + "=" * 80)
         logger.info("RUNNING RGCL (Global Random Layer Calibration)")
         logger.info("=" * 80)
@@ -1353,6 +1397,7 @@ def main():
             pooling_mode=args.spp_pooling_mode,
             precomputed_test_probs=prediction_cache["test_probs"],
             training_method=args.training_method,
+            emit_beyond_ece=args.emit_beyond_ece,
         )
         results["rgcl"] = rgcl_results
         save_results_incrementally(results, output_file)
@@ -1360,7 +1405,7 @@ def main():
         logger.info("RGCL already computed")
     
     # ===== 4. RGCC (Table 1, Table 2, Figures 2-4) =====
-    if should_rerun_section(results, "rgcc", GEO_REQUIRED_FIELDS):
+    if should_rerun_section(results, "rgcc", geo_required_fields):
         logger.info("\n" + "=" * 80)
         logger.info("RUNNING RGCC (Coordinate Sampling Calibration)")
         logger.info("=" * 80)
@@ -1383,6 +1428,7 @@ def main():
             seed=args.seed,
             training_method=args.training_method,
             precomputed_test_probs=prediction_cache["test_probs"],
+            emit_beyond_ece=args.emit_beyond_ece,
         )
         results["rgcc"] = rgcc_results
         save_results_incrementally(results, output_file)
@@ -1399,7 +1445,7 @@ def main():
             and results["gc_dac"].get("reason") == "skipped via --skip-tost-methods"
         )
         if not is_dinov2 and (
-            should_rerun_section(results, "gc_dac", GEO_REQUIRED_FIELDS) or gc_dac_skipped_via_flag
+            should_rerun_section(results, "gc_dac", geo_required_fields) or gc_dac_skipped_via_flag
         ):
             logger.info("\n" + "=" * 80)
             logger.info("RUNNING GC(DAC) - GC with DAC layer selection")
@@ -1423,6 +1469,7 @@ def main():
                     seed=args.seed,
                     pooling_mode=args.spp_pooling_mode,
                     precomputed_test_probs=prediction_cache["test_probs"],
+                    emit_beyond_ece=args.emit_beyond_ece,
                 )
                 results["gc_dac"] = gc_dac_results
                 save_results_incrementally(results, output_file)
@@ -1445,7 +1492,7 @@ def main():
             isinstance(results.get("gc_tulip"), dict)
             and results["gc_tulip"].get("reason") == "skipped via --skip-tost-methods"
         )
-        if should_rerun_section(results, "gc_tulip", GEO_REQUIRED_FIELDS) or gc_tulip_skipped_via_flag:
+        if should_rerun_section(results, "gc_tulip", geo_required_fields) or gc_tulip_skipped_via_flag:
             logger.info("\n" + "=" * 80)
             logger.info("RUNNING GC(TULIP) - RGC with TULIP layer selection")
             logger.info("=" * 80)
@@ -1468,6 +1515,7 @@ def main():
                     seed=args.seed,
                     pooling_mode=args.spp_pooling_mode,
                     precomputed_test_probs=prediction_cache["test_probs"],
+                    emit_beyond_ece=args.emit_beyond_ece,
                 )
                 results["gc_tulip"] = gc_tulip_results
                 save_results_incrementally(results, output_file)

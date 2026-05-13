@@ -36,6 +36,7 @@ is also included for manual single-configuration checks.
 | **Figure 4** - Preprocessing time | [Experiments/plot_end_to_end_timing.py](Experiments/plot_end_to_end_timing.py) | Aggregates timing fields from the per-config JSONs. |
 | **Figure 5** - Throughput | [Experiments/plot_end_to_end_timing.py](Experiments/plot_end_to_end_timing.py) | Same source data as Figure 4. |
 | Backbone training | [Experiments/train_model.py](Experiments/train_model.py) | ResNet-18/50/101/152, DenseNet-121, DINOv2-Large. |
+| "Beyond ECE" rankings (Adaptive ECE, MCE) | [Experiments/generate_beyond_ece_table.py](Experiments/generate_beyond_ece_table.py) | Opt-in; requires running the calibration pipeline with --emit-beyond-ece first. |
 
 ## Repository layout
 
@@ -60,6 +61,12 @@ Losses/                         Loss factory used by training
 results/, calibration_results/  Expected output paths (examples included)
 ```
 
+## Architecture-agnostic layer discovery
+
+The discovery/filtering procedure described in Section 3.1 of the paper is implemented in two places:
+- `utils/layer_utils.py`: `filter_feature_layers`, `is_feature_layer` - the exclusion rules (activations, dropout, identity, flatten).
+- `utils/coordinate_extraction.py`: `discover_coordinate_space` - walks `model.named_modules()`, runs a single forward pass to capture per-module output shapes, then filters with the rules above. The result is the `L_all` index set used by both RGCL and RGCC. For RGCL only, `utils/utils.py::discover_model_layers` provides the lighter-weight variant used during layer sampling.
+
 ## Direct entry-point examples
 
 ```bash
@@ -77,6 +84,11 @@ python Experiments/run_rgc_experiments.py \
 
 # Build the paper LaTeX tables from collected JSONs
 python Experiments/generate_paper_tables.py --input-dir calibration_results
+
+# Beyond-ECE rankings (Adaptive ECE + MCE), only if you ran the
+# pipeline with --emit-beyond-ece
+python run_paper_experiments.py --full --emit-beyond-ece
+python Experiments/generate_beyond_ece_table.py --input-dir calibration_results
 
 # Run the L x d hyperparameter sweep (Figure 1 data; expensive)
 python Experiments/run_hyperparameter_sweep.py --skip-existing
@@ -127,8 +139,3 @@ Figure 2 uses the torchvision pretrained DenseNet-121 to visualize feature norm 
 }
 ```
 
-## License
-
-The code license is currently pending author/advisor/institution confirmation.
-Until a LICENSE file is added, this repository is provided for review and
-reproducibility inspection, but no reuse license is granted.

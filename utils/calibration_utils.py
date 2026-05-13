@@ -20,6 +20,7 @@ from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 from torch.utils.data import TensorDataset, DataLoader
 
+from Metrics.metrics import calculate_adaptive_ece, calculate_calibration_mce
 from utils.logging_config import get_logger
 logger = get_logger(__name__)
 
@@ -423,7 +424,8 @@ def run_standard_baselines(model_adapter,
                            train_labels: Optional[np.ndarray] = None,
                            candidate_layers_all: Optional[List[int]] = None,
                            seed: int = 42,
-                           device: str = "cuda"):
+                           device: str = "cuda",
+                           emit_beyond_ece: bool = False):
     """
     Runs standard calibration baselines: Uncalibrated, Temperature Scaling, Isotonic Top-Label,
     Platt Scaling, Beta Calibration, Density-Aware Calibration, and Geometric Calibration.
@@ -450,10 +452,14 @@ def run_standard_baselines(model_adapter,
     dataset_name = getattr(model_adapter, 'dataset_name', 'cifar10')
     
     def _metrics(probs):
-        return dict(
+        metrics = dict(
             ece=float(UncertaintyMetrics.calculate_ece(probs, test_labels, n_bins=ECE_BIN_COUNT)),
             acc=float(UncertaintyMetrics.calculate_accuracy(probs, test_labels)),
         )
+        if emit_beyond_ece:
+            metrics["adaptive_ece"] = float(calculate_adaptive_ece(probs, test_labels, n_bins=ECE_BIN_COUNT))
+            metrics["mce"] = float(calculate_calibration_mce(probs, test_labels, n_bins=ECE_BIN_COUNT))
+        return metrics
 
     results = {}
 
@@ -724,9 +730,8 @@ def run_standard_baselines(model_adapter,
         geo_total_elapsed = time.perf_counter() - geo_total_start
         geo_extraction_time = geo_init_elapsed + geo_fit_elapsed
         
-        results["geometric_physical_space"] = dict(
-            ece=float(UncertaintyMetrics.calculate_ece(probs_geo, test_labels, n_bins=ECE_BIN_COUNT)),
-            acc=float(UncertaintyMetrics.calculate_accuracy(probs_geo, test_labels)),
+        results["geometric_physical_space"] = _metrics(probs_geo)
+        results["geometric_physical_space"].update(
             timing_init_seconds=geo_init_elapsed,
             timing_fit_seconds=geo_fit_elapsed,
             timing_calibrate_seconds=geo_calibrate_elapsed,

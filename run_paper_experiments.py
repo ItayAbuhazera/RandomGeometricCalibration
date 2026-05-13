@@ -365,6 +365,7 @@ def run_calibration(
     eval_ensemble: bool = False,
     ensemble_seeds: Optional[List[int]] = None,
     skip_tost_methods: bool = False,
+    emit_beyond_ece: bool = False,
     verbose: bool = True,
 ) -> Tuple[bool, Dict[str, Any]]:
     """
@@ -404,6 +405,9 @@ def run_calibration(
 
     if skip_tost_methods:
         cmd.append("--skip-tost-methods")
+
+    if emit_beyond_ece:
+        cmd.append("--emit-beyond-ece")
 
     try:
         if verbose:
@@ -649,6 +653,7 @@ def run_single_experiment(
             eval_ensemble=getattr(args, 'eval_ensemble', False),
             ensemble_seeds=[int(s) for s in args.ensemble_seeds.split()],
             skip_tost_methods=args.quick,
+            emit_beyond_ece=args.emit_beyond_ece,
             verbose=True,
         )
 
@@ -818,6 +823,12 @@ Examples:
         type=str,
         default="11 12 13",
         help="Space-separated seeds for deep ensemble evaluation (default: '11 12 13')",
+    )
+    parser.add_argument(
+        "--emit-beyond-ece",
+        action="store_true",
+        default=False,
+        help="Forward --emit-beyond-ece to run_rgc_experiments.py for opt-in MCE reporting.",
     )
 
     args = parser.parse_args()

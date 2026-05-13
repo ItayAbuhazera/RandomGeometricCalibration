@@ -7,8 +7,6 @@ Experiments/run_rgc_experiments.py for each cell, writing one
 paper_results.json per (model, dataset, seed, L, d) configuration. The output
 JSONs are consumed by Experiments/generate_hyperparameter_table.py.
 
-Runtime note: the total runtime on the paper's RTX 3090 was roughly N hours.
-TODO: replace N after measuring the public release workflow.
 """
 
 from __future__ import annotations

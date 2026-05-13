@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the accompanying paper."
+type: software
+title: "Random Geometric Calibration (RGC)"
+abstract: "Reference implementation of Random Geometric Calibration, a post-hoc geometric confidence calibration method that replaces architecture-specific layer selection with randomized sampling."
+authors:
+  - family-names: "Abuhazera"
+    given-names: "Itay"
+    affiliation: "Ben-Gurion University of the Negev"
+  - family-names: "Cohen"
+    given-names: "Liron"
+    affiliation: "Ben-Gurion University of the Negev"
+  - family-names: "Einziger"
+    given-names: "Gil"
+    affiliation: "Ben-Gurion University of the Negev"
+preferred-citation:
+  type: conference-paper
+  title: "Semantic Geometric Calibration in Randomized Neural Feature Space"
+  authors:
+    - family-names: "Abuhazera"
+      given-names: "Itay"
+    - family-names: "Cohen"
+      given-names: "Liron"
+    - family-names: "Einziger"
+      given-names: "Gil"
+  collection-title: "Proceedings of the International Joint Conference on Artificial Intelligence (IJCAI)"
+  year: 2026
