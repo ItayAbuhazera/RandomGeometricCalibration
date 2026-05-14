@@ -710,8 +710,12 @@ def plot_timing_comparison(ax, df: pd.DataFrame, time_col: str, std_col: str,
                label='Fast Separation', color=COLOR_GEOMETRIC_PIXEL, edgecolor='none',
                capsize=1.5, error_kw=error_kw)
     
-    # Configure y-axis (log scale)
+    # Configure y-axis (log scale with clean tick labels)
     ax.set_yscale('log')
+    from matplotlib.ticker import LogLocator, NullFormatter
+    ax.yaxis.set_major_locator(LogLocator(base=10, numticks=10))
+    ax.yaxis.set_minor_locator(LogLocator(base=10, subs=np.arange(2, 10), numticks=50))
+    ax.yaxis.set_minor_formatter(NullFormatter())
     # Only show ylabel if requested (for shared y-axis, only show on leftmost subplot)
     if show_ylabel:
         ax.set_ylabel(ylabel, fontsize=11)  # Increased from 8 to match IJCAI guidelines
@@ -862,7 +866,8 @@ def create_preprocessing_figure(df: pd.DataFrame, output_path: Path):
         legend_loc='upper left',
         show_ylabel=True
     )
-    
+    ax.set_ylim(bottom=1)  # Anchor at 1s so ticks fall on clean powers of 10
+
     # Save figure in multiple formats
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -1072,12 +1077,6 @@ def generate_available_figures(df: pd.DataFrame, output_dir: Path) -> Tuple[List
             "online_mean_ms",
             create_online_figure,
             "online_mean_ms is missing or all NaN",
-        ),
-        (
-            "figure4_5_end_to_end.pdf",
-            "total_mean_s",
-            create_end_to_end_figure,
-            "total_mean_s is missing or all NaN",
         ),
     ]
 
