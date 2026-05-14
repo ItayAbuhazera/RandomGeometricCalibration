@@ -413,6 +413,26 @@ def extract_and_aggregate_rgc_features(
     return train_features, val_features, test_features, extraction_info
 
 
+def build_feature_metadata(
+    train_features: np.ndarray,
+    val_features: np.ndarray,
+    test_features: np.ndarray,
+    extraction_info: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build persisted metadata for RGCL-style project-then-sum features."""
+    metadata = dict(extraction_info or {})
+    if train_features is not None and train_features.ndim == 2:
+        metadata["feature_dim"] = int(train_features.shape[1])
+    for split_name, features in (
+        ("train", train_features),
+        ("val", val_features),
+        ("test", test_features),
+    ):
+        if features is not None:
+            metadata[f"{split_name}_feature_shape"] = [int(dim) for dim in features.shape]
+    return metadata
+
+
 def apply_spp(feature_tensor: torch.Tensor, pooling_mode: str = "max") -> torch.Tensor:
     """Apply Spatial Pyramid Pooling (4x4, 2x2, 1x1)."""
     import torch.nn.functional as F
@@ -667,8 +687,9 @@ def run_global_random_calibration(
     """
     RGCL: Random Geometric Calibration with Layer sampling.
     
-    Samples L random layers, applies SPP pooling, random projection,
-    and geometric calibration.
+    Samples L random layers, extracts SPP-only features per layer, applies
+    independent deterministic per-layer random projections, sums the projected
+    vectors, and L2-normalizes once before geometric calibration.
     """
     logger.info("\n" + "=" * 80)
     logger.info(f"RUNNING RGCL (L={num_layers}, d={target_dim})")
@@ -819,6 +840,9 @@ def run_global_random_calibration(
         "target_dim": target_dim,
         "selected_layers": selected_layers,
         "extraction_time_s": extraction_info.get("extraction_time_s", 0),
+        "feature_metadata": build_feature_metadata(
+            train_features, val_features, test_features, extraction_info
+        ),
         "fit_time_s": float(fit_time),
         "calibrate_time_s": float(calibrate_time),
         "throughput_samples_per_sec": float(throughput),
@@ -906,7 +930,7 @@ def run_gc_with_dac_layers(
             shuffle=False,
         )
     
-    # Extract features using RGC pipeline
+    # Extract features using the RGC project-then-sum pipeline
     print_phase_header("GC(DAC)", "extract features")
     train_features, val_features, test_features, extraction_info = extract_and_aggregate_rgc_features(
         model=model,
@@ -983,6 +1007,9 @@ def run_gc_with_dac_layers(
         "selected_layers": selected_layers,
         "layer_selection": "dac",
         "extraction_time_s": extraction_info.get("extraction_time_s", 0),
+        "feature_metadata": build_feature_metadata(
+            train_features, val_features, test_features, extraction_info
+        ),
         "fit_time_s": float(fit_time),
         "calibrate_time_s": float(calibrate_time),
         "calibrator_params": geo_cal.get_params(),
@@ -1053,7 +1080,7 @@ def run_rgc_with_tulip_layers(
             shuffle=False,
         )
     
-    # Extract features using RGC pipeline
+    # Extract features using the RGC project-then-sum pipeline
     print_phase_header("GC(TULIP)", "extract features")
     train_features, val_features, test_features, extraction_info = extract_and_aggregate_rgc_features(
         model=model,
@@ -1130,6 +1157,9 @@ def run_rgc_with_tulip_layers(
         "selected_layers": selected_layers,
         "layer_selection": "tulip",
         "extraction_time_s": extraction_info.get("extraction_time_s", 0),
+        "feature_metadata": build_feature_metadata(
+            train_features, val_features, test_features, extraction_info
+        ),
         "fit_time_s": float(fit_time),
         "calibrate_time_s": float(calibrate_time),
         "calibrator_params": geo_cal.get_params(),

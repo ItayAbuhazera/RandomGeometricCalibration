@@ -405,6 +405,7 @@ def run_calibration(
     ensemble_seeds: Optional[List[int]] = None,
     skip_tost_methods: bool = False,
     emit_beyond_ece: bool = False,
+    force_recompute: bool = False,
     verbose: bool = True,
 ) -> Tuple[bool, Dict[str, Any]]:
     """
@@ -447,6 +448,9 @@ def run_calibration(
 
     if emit_beyond_ece:
         cmd.append("--emit-beyond-ece")
+
+    if force_recompute:
+        cmd.append("--force-recompute")
 
     try:
         if verbose:
@@ -693,6 +697,7 @@ def run_single_experiment(
             ensemble_seeds=[int(s) for s in args.ensemble_seeds.split()],
             skip_tost_methods=args.quick,
             emit_beyond_ece=args.emit_beyond_ece,
+            force_recompute=args.force,
             verbose=True,
         )
 
