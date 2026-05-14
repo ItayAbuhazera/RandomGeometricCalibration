@@ -248,106 +248,166 @@ def extract_and_aggregate_rgc_features(
     method_label: str = "RGC",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
     """
-    Extract and aggregate features using RGC pipeline (RGCL).
+    Extract RGCL features with project-then-sum aggregation.
     
     Pipeline:
-    1. SPP pooling per layer (4x4, 2x2, 1x1)
-    2. Random projection per layer
-    3. Project-then-sum aggregation
-    4. L2 normalization
+    1. For each selected layer, apply SPP pooling (4x4, 2x2, 1x1).
+    2. Draw an independent deterministic Gaussian projection per layer.
+    3. Project each layer's SPP features to ``target_dim`` and sum them.
+    4. Apply L2 normalization once after summation.
     """
+    if target_dim <= 0:
+        raise ValueError(f"target_dim must be positive, got {target_dim}")
+
     start_time = time.perf_counter()
     
-    # Extract raw features from selected layers
     model.eval()
+    module_by_name = dict(model.named_modules())
     
-    def extract_with_spp(loader, split_name: str):
-        """Extract features with SPP pooling."""
+    selected_modules = []
+    for layer_idx, layer_name in enumerate(layer_names):
+        module = module_by_name.get(layer_name)
+        if module is None:
+            logger.warning(f"Layer {layer_name} not found in model")
+            continue
+        selected_modules.append((layer_idx, layer_name, module))
+    
+    if not selected_modules:
+        raise ValueError("No selected layers were found in the model")
+    
+    def extract_layer_spp(layer_name: str, module: torch.nn.Module, loader, split_name: str):
+        """Extract SPP-only features for one layer and one data split."""
+        if loader is None:
+            return None
+
         all_features = []
+        activation = {}
         
+        def hook(module, input, output):
+            tensor = coerce_to_tensor(output)
+            if tensor is not None:
+                activation["value"] = tensor
+
+        handle = module.register_forward_hook(hook)
         with torch.no_grad():
-            desc = f"{method_label} extract {split_name} features"
-            for batch_data in tqdm(loader, desc=desc):
-                if isinstance(batch_data, (tuple, list)):
-                    x = batch_data[0]
-                else:
-                    x = batch_data
-                x = x.to(device).float()
-                
-                # Get activations from each layer
-                batch_features = []
-                handles = []
-                activations = {}
-                
-                def make_hook(name):
-                    def hook(module, input, output):
-                        activations[name] = output
-                    return hook
-                
-                # Register hooks
-                for name in layer_names:
-                    try:
-                        module = dict(model.named_modules())[name]
-                        handle = module.register_forward_hook(make_hook(name))
-                        handles.append(handle)
-                    except KeyError:
-                        logger.warning(f"Layer {name} not found in model")
-                
-                # Forward pass
-                _ = model(x)
-                
-                # Remove hooks
-                for handle in handles:
-                    handle.remove()
-                
-                # Apply SPP and aggregate
-                layer_features = []
-                for name in layer_names:
-                    if name in activations:
-                        feat = activations[name]
-                        if isinstance(feat, torch.Tensor):
-                            # Apply SPP (4x4, 2x2, 1x1)
-                            feat_spp = apply_spp(feat, pooling_mode=pooling_mode)
-                            layer_features.append(feat_spp.cpu().numpy())
-                
-                if layer_features:
-                    batch_features = np.concatenate(layer_features, axis=1)
-                    all_features.append(batch_features)
-        
-        return np.concatenate(all_features, axis=0) if all_features else np.array([])
+            try:
+                desc = f"{method_label} extract {split_name} {layer_name} SPP"
+                for batch_data in tqdm(loader, desc=desc):
+                    if isinstance(batch_data, (tuple, list)):
+                        x = batch_data[0]
+                    else:
+                        x = batch_data
+                    x = x.to(device).float()
+                    activation.clear()
+                    
+                    _ = model(x)
+                    
+                    feat = activation.get("value")
+                    if feat is None:
+                        raise RuntimeError(f"Layer {layer_name} did not produce a tensor activation")
+                    
+                    feat_spp = apply_spp(feat.float(), pooling_mode=pooling_mode)
+                    all_features.append(feat_spp.detach().cpu().numpy().astype(np.float32, copy=False))
+            finally:
+                handle.remove()
+
+        if not all_features:
+            return np.empty((0, 0), dtype=np.float32)
+        return np.concatenate(all_features, axis=0).astype(np.float32, copy=False)
     
-    # Extract from all loaders
-    train_features = extract_with_spp(train_loader, "train") if train_loader else None
-    val_features = extract_with_spp(val_loader, "val") if val_loader else None
-    test_features = extract_with_spp(test_loader, "test") if test_loader else None
+    def accumulate_projected(current_sum, layer_features, proj_matrix, split_name: str):
+        if layer_features is None:
+            return current_sum
+        projected = layer_features.astype(np.float32, copy=False) @ proj_matrix
+        projected = projected.astype(np.float32, copy=False)
+        if current_sum is None:
+            return projected
+        if current_sum.shape != projected.shape:
+            raise ValueError(
+                f"{split_name} projected feature shape changed from "
+                f"{current_sum.shape} to {projected.shape}"
+            )
+        current_sum += projected
+        return current_sum
+
+    train_sum = None
+    val_sum = None
+    test_sum = None
+    per_layer_projection_seeds = {}
+    per_layer_spp_dims = {}
+    valid_layer_names = []
+
+    for layer_idx, layer_name, module in selected_modules:
+        logger.info(f"{method_label}: extracting layer {layer_name}")
+        train_layer = extract_layer_spp(layer_name, module, train_loader, "train")
+        val_layer = extract_layer_spp(layer_name, module, val_loader, "val")
+        test_layer = extract_layer_spp(layer_name, module, test_loader, "test")
+
+        reference_features = next(
+            (features for features in (train_layer, val_layer, test_layer) if features is not None),
+            None,
+        )
+        if reference_features is None:
+            raise ValueError(f"No SPP features were extracted for layer {layer_name}")
+        if reference_features.ndim != 2 or reference_features.shape[1] == 0:
+            raise ValueError(f"Layer {layer_name} produced invalid SPP features: {reference_features.shape}")
+
+        layer_dim = int(reference_features.shape[1])
+        for split_name, split_features in (
+            ("train", train_layer),
+            ("val", val_layer),
+            ("test", test_layer),
+        ):
+            if split_features is not None and split_features.shape[1] != layer_dim:
+                raise ValueError(
+                    f"{split_name} SPP dim for layer {layer_name} is {split_features.shape[1]}, "
+                    f"expected {layer_dim}"
+                )
+
+        projection_seed = int(seed + layer_idx)
+        rng = np.random.default_rng(projection_seed)
+        proj_matrix = rng.normal(
+            loc=0.0,
+            scale=1.0 / np.sqrt(target_dim),
+            size=(layer_dim, target_dim),
+        ).astype(np.float32)
+
+        train_sum = accumulate_projected(train_sum, train_layer, proj_matrix, "train")
+        val_sum = accumulate_projected(val_sum, val_layer, proj_matrix, "val")
+        test_sum = accumulate_projected(test_sum, test_layer, proj_matrix, "test")
+        per_layer_projection_seeds[layer_name] = projection_seed
+        per_layer_spp_dims[layer_name] = layer_dim
+        valid_layer_names.append(layer_name)
     
-    # Random projection to target_dim
-    np.random.seed(seed)
-    if train_features is not None and train_features.shape[1] > target_dim:
-        # Create random projection matrix
-        proj_matrix = np.random.randn(train_features.shape[1], target_dim) / np.sqrt(target_dim)
-        train_features = train_features @ proj_matrix
-        if val_features is not None:
-            val_features = val_features @ proj_matrix
-        if test_features is not None:
-            test_features = test_features @ proj_matrix
+    if train_loader is not None and train_sum is None:
+        raise ValueError("No train features were extracted")
+    if val_loader is not None and val_sum is None:
+        raise ValueError("No validation features were extracted")
+    if test_loader is not None and test_sum is None:
+        raise ValueError("No test features were extracted")
     
-    # L2 normalize
-    if train_features is not None:
-        train_features = normalize(train_features, norm="l2", axis=1)
-    if val_features is not None:
-        val_features = normalize(val_features, norm="l2", axis=1)
-    if test_features is not None:
-        test_features = normalize(test_features, norm="l2", axis=1)
+    def l2_normalize(features):
+        if features is None:
+            return None
+        return normalize(features, norm="l2", axis=1).astype(np.float32, copy=False)
+    
+    train_features = l2_normalize(train_sum)
+    val_features = l2_normalize(val_sum)
+    test_features = l2_normalize(test_sum)
     
     extraction_time = time.perf_counter() - start_time
+    total_spp_dims = int(sum(per_layer_spp_dims.values()))
+    layer_contribution = 1.0 / len(valid_layer_names)
     
     extraction_info = {
         "extraction_time_s": extraction_time,
-        "num_layers": len(layer_names),
+        "num_layers": len(valid_layer_names),
         "target_dim": target_dim,
-        "layer_contributions": {name: 1.0/len(layer_names) for name in layer_names},
-        "total_spp_dims": train_features.shape[1] if train_features is not None else 0,
+        "layer_contributions": {name: layer_contribution for name in valid_layer_names},
+        "total_spp_dims": total_spp_dims,
+        "aggregation": "project_then_sum",
+        "per_layer_projection_seeds": per_layer_projection_seeds,
+        "per_layer_spp_dims": per_layer_spp_dims,
     }
     
     return train_features, val_features, test_features, extraction_info
