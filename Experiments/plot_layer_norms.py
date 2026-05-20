@@ -8,6 +8,7 @@ layers exhibit 5x-30x higher norms than early layers.
 """
 
 import argparse
+import json
 import os
 import torch
 import torch.nn as nn
@@ -30,6 +31,8 @@ TORCHVISION_DENSENET_LAYERS = [
 
 CUSTOM_DENSENET_LAYERS = ['conv1', 'trans1', 'trans2', 'trans3', 'bn']
 
+RESNET_LAYER_ORDER = ['stem', 'layer1', 'layer2', 'layer3', 'layer4']
+
 DENSENET_LAYER_DISPLAY_MAP = {
     'features.pool0': 'Initial Pool',
     'features.transition1': 'Transition 1',
@@ -42,6 +45,99 @@ DENSENET_LAYER_DISPLAY_MAP = {
     'trans3': 'Transition 3',
     'bn': 'Final Norm',
 }
+
+
+def get_ordered_norm_entries(mean_norms, model_type):
+    """Return norm entries in the same semantic order used by the plots."""
+    if model_type == 'transformer':
+        def get_block_num(name):
+            if name == 'patch_embed':
+                return -1
+            elif name == 'final_norm':
+                return 1000
+            elif name.startswith('block_'):
+                return int(name.split('_')[1])
+            return 0
+
+        layer_names = sorted(mean_norms.keys(), key=get_block_num)
+        display_names = []
+        for name in layer_names:
+            if name == 'patch_embed':
+                display_names.append('Patch Embed')
+            elif name == 'final_norm':
+                display_names.append('Final Norm')
+            elif name.startswith('block_'):
+                display_names.append(f"Block {name.split('_')[1]}")
+            else:
+                display_names.append(name)
+    elif model_type == 'densenet':
+        layer_order = TORCHVISION_DENSENET_LAYERS + CUSTOM_DENSENET_LAYERS
+        layer_names = [layer for layer in layer_order if layer in mean_norms]
+        for layer in mean_norms.keys():
+            if layer not in layer_names:
+                layer_names.append(layer)
+
+        display_map = getattr(
+            extract_densenet_layer_features,
+            'layer_display_map',
+            DENSENET_LAYER_DISPLAY_MAP,
+        )
+        display_names = [
+            display_map.get(name, name.split('.')[-1].capitalize())
+            for name in layer_names
+        ]
+    else:
+        layer_names = [layer for layer in RESNET_LAYER_ORDER if layer in mean_norms]
+        for layer in mean_norms.keys():
+            if layer not in layer_names:
+                layer_names.append(layer)
+
+        display_names = []
+        for name in layer_names:
+            if name == 'stem':
+                display_names.append('Conv')
+            elif name.startswith('layer') and name[-1].isdigit():
+                display_names.append(f'L{name[-1]}')
+            else:
+                display_names.append(name.capitalize())
+
+    return [
+        {
+            'layer': layer,
+            'label': label,
+            'mean_l2_norm': float(mean_norms[layer]),
+        }
+        for layer, label in zip(layer_names, display_names)
+    ]
+
+
+def build_model_norm_payload(mean_norms, model_type, model_name):
+    entries = get_ordered_norm_entries(mean_norms, model_type)
+    values = [entry['mean_l2_norm'] for entry in entries]
+    ratio = max(values) / min(values) if values and min(values) > 0 else 0.0
+
+    return {
+        'model_name': model_name,
+        'model_type': model_type,
+        'norms': {layer: float(value) for layer, value in mean_norms.items()},
+        'plotted_layers': entries,
+        'ratio_max_min': float(ratio),
+    }
+
+
+def default_json_output_path(figure_path):
+    return str(Path(figure_path).with_suffix('.json'))
+
+
+def save_norms_json(payload, json_path):
+    output_dir = os.path.dirname(json_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    with open(json_path, 'w', encoding='utf-8') as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True, allow_nan=False)
+
+    print(f"Norm values saved to {json_path}")
 
 
 def load_resnet50(checkpoint_path=None, num_classes=100, device='cuda'):
@@ -331,42 +427,57 @@ def extract_layer_features(model, dataloader, device, layers_to_extract):
     # Register hooks to capture layer outputs
     features = {}
     hooks = []
+    modules = dict(model.named_modules())
+    has_maxpool = hasattr(model, 'maxpool') and model.maxpool is not None
+    requested_stem_aliases = {'stem', 'initial_conv', 'maxpool'}
+    requested_stem = any(layer in requested_stem_aliases for layer in layers_to_extract)
+    layers_to_extract = [
+        layer for layer in layers_to_extract
+        if layer not in requested_stem_aliases
+    ]
     
     def get_activation(name):
         def hook(module, input, output):
             features[name] = output.detach()
         return hook
     
-    # Special handling for custom ResNet: hook into layer1 input to capture initial conv output
-    initial_conv_features = None
-    if 'maxpool' not in layers_to_extract and 'layer1' in layers_to_extract:
-        # Hook into layer1's input to get output after conv1+bn1+relu
-        def get_initial_conv_hook():
-            def hook(module, input, output):
-                nonlocal initial_conv_features
-                initial_conv_features = input[0].detach()  # input is a tuple
+    # Capture exactly one ResNet stem activation under the shared 'stem' key.
+    # Torchvision ResNets use the top-level stem ReLU; custom CIFAR ResNets
+    # without maxpool use layer1's input, which is already conv1+bn1+relu.
+    stem_features = None
+    capture_stem = requested_stem or 'layer1' in layers_to_extract
+    if capture_stem and has_maxpool:
+        if hasattr(model, 'relu') and modules.get('relu') is model.relu:
+            hook = model.relu.register_forward_hook(get_activation('stem'))
+            hooks.append(hook)
+            print("Registered hook to capture stem activation (model.relu after bn1)")
+        else:
+            print("Warning: Top-level stem ReLU ('relu') not found; stem will not be captured.")
+    elif capture_stem and 'layer1' in modules:
+        def get_stem_hook():
+            def hook(module, input):
+                nonlocal stem_features
+                stem_features = input[0].detach()  # input is a tuple
             return hook
         
-        layer1_module = dict(model.named_modules())['layer1']
-        hook = layer1_module.register_forward_pre_hook(get_initial_conv_hook())
+        layer1_module = modules['layer1']
+        hook = layer1_module.register_forward_pre_hook(get_stem_hook())
         hooks.append(hook)
-        print("Registered hook to capture initial conv block output (via layer1 input)")
+        print("Registered hook to capture stem activation (via layer1 input)")
     
     # Register hooks for each layer
     for layer_name in layers_to_extract:
         try:
-            layer = dict(model.named_modules())[layer_name]
+            layer = modules[layer_name]
             hook = layer.register_forward_hook(get_activation(layer_name))
             hooks.append(hook)
         except KeyError:
             print(f"Warning: Layer '{layer_name}' not found in model.")
     
     # Accumulate norms for each layer
-    # Add 'initial_conv' if we're capturing it separately (for custom ResNet without maxpool)
     all_layer_names = layers_to_extract.copy()
-    capture_initial_conv = ('maxpool' not in layers_to_extract and 'layer1' in layers_to_extract)
-    if capture_initial_conv:
-        all_layer_names.insert(0, 'initial_conv')
+    if capture_stem:
+        all_layer_names.insert(0, 'stem')
     
     layer_norms = {layer: [] for layer in all_layer_names}
     
@@ -375,16 +486,16 @@ def extract_layer_features(model, dataloader, device, layers_to_extract):
         for batch_idx, (images, _) in enumerate(dataloader):
             images = images.to(device)
             
-            # Reset initial_conv_features for this batch
-            if capture_initial_conv:
-                initial_conv_features = None
+            # Reset stem features for this batch
+            if capture_stem:
+                stem_features = None
             
             # Forward pass
             _ = model(images)
             
-            # Process initial conv features (if captured separately)
-            if capture_initial_conv and initial_conv_features is not None:
-                layer_output = initial_conv_features
+            # Process custom-ResNet stem features captured through layer1 input.
+            if capture_stem and not has_maxpool and stem_features is not None:
+                layer_output = stem_features
                 
                 # Apply Global Average Pooling if needed
                 if len(layer_output.shape) == 4:
@@ -394,10 +505,10 @@ def extract_layer_features(model, dataloader, device, layers_to_extract):
                     pooled = layer_output.flatten(1)
                 
                 norms = pooled.norm(dim=1)
-                layer_norms['initial_conv'].append(norms.cpu())
+                layer_norms['stem'].append(norms.cpu())
             
-            # Process each layer's features
-            for layer_name in layers_to_extract:
+            # Process each hooked layer's features
+            for layer_name in all_layer_names:
                 if layer_name not in features:
                     continue
                 
@@ -433,6 +544,9 @@ def extract_layer_features(model, dataloader, device, layers_to_extract):
             mean_norms[layer_name] = all_norms.mean().item()
         else:
             mean_norms[layer_name] = 0.0
+
+    if 'stem' in mean_norms:
+        print(f"ResNet stem norm (conv1+bn1+relu): {mean_norms['stem']:.4f}")
     
     return mean_norms
 
@@ -796,8 +910,8 @@ def plot_layer_norms(mean_norms, save_path='figs/layer_norms.pdf', model_type='r
         color = 'mediumseagreen'
         title = f'Average L2 Norm of Pooled Feature Vectors Across Layers\n{model_name} on CIFAR-100'
     else:
-        # For ResNet, sort layers by depth (initial_conv/maxpool first, then layer1-4)
-        layer_order = ['initial_conv', 'maxpool', 'layer1', 'layer2', 'layer3', 'layer4']
+        # For ResNet, sort layers by depth (stem first, then layer1-4)
+        layer_order = RESNET_LAYER_ORDER
         layer_names = [l for l in layer_order if l in mean_norms]
         # Add any remaining layers not in the standard order
         for layer in mean_norms.keys():
@@ -806,13 +920,13 @@ def plot_layer_norms(mean_norms, save_path='figs/layer_norms.pdf', model_type='r
         
         norms = [mean_norms[layer] for layer in layer_names]
         
-        # Create display names (replace initial_conv with "Initial Conv" and maxpool with "Initial Conv")
+        # Create display names
         display_names = []
         for name in layer_names:
-            if name == 'initial_conv':
-                display_names.append('Initial Conv')
-            elif name == 'maxpool':
-                display_names.append('Initial Conv')
+            if name == 'stem':
+                display_names.append('Conv')
+            elif name.startswith('layer') and name[-1].isdigit():
+                display_names.append(f'L{name[-1]}')
             else:
                 display_names.append(name.capitalize())
         
@@ -939,15 +1053,15 @@ def plot_multi_model_norms(models_data, save_path='figs/multi_model_norms.pdf'):
             title = 'DenseNet-121'
 
         else: # ResNet
-            layer_order = ['initial_conv', 'maxpool', 'layer1', 'layer2', 'layer3', 'layer4']
+            layer_order = RESNET_LAYER_ORDER
             layer_names = [l for l in layer_order if l in mean_norms]
             for layer in mean_norms.keys():
                 if layer not in layer_names: layer_names.append(layer)
             
-            # Concise Labels: "Conv", "L1", "L2", "L3", "L4"
+            # Concise Labels: "Stem", "L1", "L2", "L3", "L4"
             display_names = []
             for name in layer_names:
-                if 'initial' in name or 'maxpool' in name: display_names.append('Conv')
+                if name == 'stem': display_names.append('Conv')
                 elif 'layer' in name: display_names.append(f"L{name[-1]}")
                 else: display_names.append(name)
                 
@@ -1048,7 +1162,7 @@ def plot_cnn_vs_transformer_norms(cnn_norms, transformer_norms, save_path='figs/
                 display_names_cnn.append(name.split('.')[-1].capitalize())
     else:
         # ResNet
-        layer_order = ['initial_conv', 'maxpool', 'layer1', 'layer2', 'layer3', 'layer4']
+        layer_order = RESNET_LAYER_ORDER
         layer_names_cnn = [l for l in layer_order if l in cnn_norms]
         for layer in cnn_norms.keys():
             if layer not in layer_names_cnn:
@@ -1057,10 +1171,10 @@ def plot_cnn_vs_transformer_norms(cnn_norms, transformer_norms, save_path='figs/
         # Create display names for ResNet
         display_names_cnn = []
         for name in layer_names_cnn:
-            if name == 'initial_conv':
-                display_names_cnn.append('Initial Conv')
-            elif name == 'maxpool':
-                display_names_cnn.append('Initial Conv')
+            if name == 'stem':
+                display_names_cnn.append('Conv')
+            elif name.startswith('layer') and name[-1].isdigit():
+                display_names_cnn.append(f'L{name[-1]}')
             else:
                 display_names_cnn.append(name.capitalize())
     
@@ -1196,6 +1310,12 @@ def main():
         help='Output path for figure (default: auto-generated based on model)'
     )
     parser.add_argument(
+        '--json-output',
+        type=str,
+        default=None,
+        help='Output path for JSON norm values (default: figure path with .json suffix)'
+    )
+    parser.add_argument(
         '--compare',
         action='store_true',
         help='Generate comparison plot between ResNet and DINOv2 (requires both models)'
@@ -1305,17 +1425,11 @@ def main():
                 model_display_name = model_name.upper().replace('RESNET', 'ResNet-')
                 
                 # Extract features
-                has_maxpool = hasattr(model, 'maxpool') and model.maxpool is not None
                 available_layers = list(dict(model.named_modules()).keys())
                 
-                if has_maxpool:
-                    initial_layers = ['maxpool']
-                else:
-                    initial_layers = []
-                
                 residual_layers = ['layer1', 'layer2', 'layer3', 'layer4']
-                layers_to_extract = []
-                for layer in initial_layers + residual_layers:
+                layers_to_extract = ['stem']
+                for layer in residual_layers:
                     if layer in available_layers:
                         layers_to_extract.append(layer)
                 
@@ -1334,6 +1448,22 @@ def main():
         # Generate multi-model plot
         output_path = args.output or 'figs/multi_model_norms.pdf'
         plot_multi_model_norms(models_data, save_path=output_path)
+        json_path = args.json_output or default_json_output_path(output_path)
+        save_norms_json(
+            {
+                'plot_type': 'multi_model',
+                'figure_path': output_path,
+                'models': [
+                    build_model_norm_payload(
+                        model_data['norms'],
+                        model_data['model_type'],
+                        model_data['model_name'],
+                    )
+                    for model_data in models_data
+                ],
+            },
+            json_path,
+        )
         
         print("\nDone!")
         return
@@ -1381,17 +1511,11 @@ def main():
                 )
             
             # Extract CNN features
-            has_maxpool = hasattr(model_cnn, 'maxpool') and model_cnn.maxpool is not None
             available_layers = list(dict(model_cnn.named_modules()).keys())
             
-            if has_maxpool:
-                initial_layers = ['maxpool']
-            else:
-                initial_layers = []
-            
             residual_layers = ['layer1', 'layer2', 'layer3', 'layer4']
-            layers_to_extract = []
-            for layer in initial_layers + residual_layers:
+            layers_to_extract = ['stem']
+            for layer in residual_layers:
                 if layer in available_layers:
                     layers_to_extract.append(layer)
             
@@ -1432,6 +1556,19 @@ def main():
             save_path=output_path,
             cnn_name=cnn_display_name,
             transformer_name=transformer_display_name
+        )
+        json_path = args.json_output or default_json_output_path(output_path)
+        cnn_model_type = 'densenet' if args.cnn_model == 'densenet121' else 'resnet'
+        save_norms_json(
+            {
+                'plot_type': 'cnn_vs_transformer',
+                'figure_path': output_path,
+                'models': [
+                    build_model_norm_payload(cnn_norms, cnn_model_type, cnn_display_name),
+                    build_model_norm_payload(transformer_norms, 'transformer', transformer_display_name),
+                ],
+            },
+            json_path,
         )
         
         print("\nDone!")
@@ -1518,16 +1655,15 @@ def main():
         available_layers = list(dict(model.named_modules()).keys())
         
         if has_maxpool:
-            initial_layers = ['maxpool']
             print("Detected torchvision-style ResNet (with maxpool)")
+            print("  Note: Will extract stem from model.relu after conv1+bn1")
         else:
-            initial_layers = []
             print("Detected custom ResNet (no maxpool)")
-            print("  Note: Will extract from layer1 input to capture initial conv block output")
+            print("  Note: Will extract stem from layer1 input")
         
         residual_layers = ['layer1', 'layer2', 'layer3', 'layer4']
-        layers_to_extract = []
-        for layer in initial_layers + residual_layers:
+        layers_to_extract = ['stem']
+        for layer in residual_layers:
             if layer in available_layers:
                 layers_to_extract.append(layer)
         
@@ -1551,6 +1687,17 @@ def main():
     
     plot_layer_norms(mean_norms, save_path=output_path, 
                      model_type=model_type, model_name=model_display_name)
+    json_path = args.json_output or default_json_output_path(output_path)
+    save_norms_json(
+        {
+            'plot_type': 'single_model',
+            'figure_path': output_path,
+            'models': [
+                build_model_norm_payload(mean_norms, model_type, model_display_name),
+            ],
+        },
+        json_path,
+    )
     
     print("\nDone!")
 
