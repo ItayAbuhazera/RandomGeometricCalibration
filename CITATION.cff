@@ -1,8 +1,13 @@
 cff-version: 1.2.0
-message: "If you use this code, please cite the paper."
+message: "If you use this software, please cite the paper below."
 type: software
-title: "Semantic Geometric Calibration in Randomized Neural Feature Space"
-abstract: "Official code release for the IJCAI 2026 paper. To appear; official proceedings metadata is not available yet."
+
+title: "Random Geometric Calibration (RGC)"
+abstract: >-
+  Official implementation of Random Geometric Calibration for the
+  IJCAI-ECAI 2026 paper "Semantic Geometric Calibration in Randomized
+  Neural Feature Space."
+
 authors:
   - family-names: "Abuhazera"
     given-names: "Itay"
@@ -10,6 +15,17 @@ authors:
     given-names: "Liron"
   - family-names: "Einziger"
     given-names: "Gil"
+
+repository-code: "https://github.com/ItayAbuhazera/RandomGeometricCalibration"
+license: "MIT"
+
+keywords:
+  - "confidence calibration"
+  - "uncertainty estimation"
+  - "geometric calibration"
+  - "deep learning"
+  - "trustworthy artificial intelligence"
+
 preferred-citation:
   type: conference-paper
   title: "Semantic Geometric Calibration in Randomized Neural Feature Space"
@@ -20,6 +36,8 @@ preferred-citation:
       given-names: "Liron"
     - family-names: "Einziger"
       given-names: "Gil"
-  collection-title: "Proceedings of the International Joint Conference on Artificial Intelligence (IJCAI)"
+  collection-title: >-
+    Proceedings of the Thirty-Fifth International Joint Conference on
+    Artificial Intelligence (IJCAI-ECAI 2026)
   year: 2026
   notes: "To appear."
