@@ -1,6 +1,16 @@
 # Random Geometric Calibration (RGC)
 
-Official code for **"Semantic Geometric Calibration in Randomized Neural Feature Space"** (IJCAI 2026). Random Geometric Calibration is a post-hoc confidence calibration method that builds randomized semantic feature spaces from neural representations. The release includes the two paper variants, RGC_L (randomized layer features) and RGC_C (randomized coordinate features), together with the baselines and table/figure generation scripts used in the paper.
+[![Paper](https://img.shields.io/badge/Paper-IJCAI--ECAI%202026-b31b1b.svg)](https://ijcai-preprints.s3.us-west-1.amazonaws.com/2026/8155.pdf)
+[![Conference](https://img.shields.io/badge/Conference-IJCAI--ECAI%202026-1f6feb.svg)](https://2026.ijcai.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Official implementation of [**“Semantic Geometric Calibration in Randomized Neural Feature Space”**](https://ijcai-preprints.s3.us-west-1.amazonaws.com/2026/8155.pdf), accepted and presented at the **IJCAI–ECAI 2026 Main Track**.
+
+**Authors:** Itay Abuhazera, Liron Cohen, and Gil Einziger
+
+> **Paper status:** The linked PDF is the preliminary IJCAI–ECAI 2026 preprint. It will be replaced with the final proceedings version once it becomes available.
+
+Random Geometric Calibration is a post-hoc confidence calibration method that builds randomized semantic feature spaces from neural representations. The release includes the two paper variants, `RGC_L` (randomized layer features) and `RGC_C` (randomized coordinate features), together with the baselines and table/figure generation scripts used in the paper.
 
 ## Installation
 
@@ -27,7 +37,7 @@ python run_paper_experiments.py --quick
 
 The quick path uses CIFAR-10 / ResNet-18 / seed 11. A small release checkpoint is included at `results/models/cifar10/resnet18/seed11/best_model.pth`.
 
-## Reproducing The Paper
+## Reproducing the Paper
 
 See [REPRODUCING.md](REPRODUCING.md) for the exact commands for Table 1, Table 2 TOST, hyperparameter sensitivity, beyond-ECE metrics, timing figures, and layer-norm figures.
 
@@ -54,7 +64,7 @@ Net/                            CIFAR and Tiny-ImageNet model definitions
 data/                           Dataset loaders
 utils/                          Model loading and geometric feature utilities
 Metrics/                        ECE and related calibration metrics
-paper_manifest.json             Reproducibility contract for the IJCAI 2026 paper
+paper_manifest.json             Reproducibility contract for the IJCAI-ECAI 2026 paper
 ```
 
 ## Datasets
@@ -71,15 +81,19 @@ See [data/tiny-imagenet-200/README.md](data/tiny-imagenet-200/README.md) for the
 
 ## Citation
 
+If you use this code or build on Random Geometric Calibration, please cite the paper:
+
 ```bibtex
 @inproceedings{abuhazera2026semantic,
   title     = {Semantic Geometric Calibration in Randomized Neural Feature Space},
-  author    = {Itay Abuhazera and Liron Cohen and Gil Einziger},
-  booktitle = {Proceedings of the International Joint Conference on Artificial Intelligence},
+  author    = {Abuhazera, Itay and Cohen, Liron and Einziger, Gil},
+  booktitle = {Proceedings of the Thirty-Fifth International Joint Conference on Artificial Intelligence (IJCAI-ECAI 2026)},
   year      = {2026},
   note      = {To appear}
 }
 ```
+
+The citation will be updated with the official proceedings URL, page numbers, and DOI once they become available.
 
 ## License
 
