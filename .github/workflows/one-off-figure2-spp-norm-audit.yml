@@ -32,8 +32,6 @@ jobs:
           
           import torch
           import torch.nn.functional as F
-          from torchvision.datasets import CIFAR10
-          from torchvision import transforms
           
           sys.path.insert(0, str(Path.cwd()))
           from Net.resnet import resnet18
@@ -42,9 +40,9 @@ jobs:
           torch.set_num_threads(2)
           
           # Deterministic synthetic proxy images (NOT a CIFAR-10 replication).
-# Same inputs across the two trained checkpoints; no dataset downloads.
-images = torch.randn(64, 3, 32, 32) * 0.8
-stage_names = ("stem", "layer1", "layer2", "layer3", "layer4")
+          # Same inputs across the two trained checkpoints; no dataset downloads.
+          images = torch.randn(64, 3, 32, 32) * 0.8
+          stage_names = ("stem", "layer1", "layer2", "layer3", "layer4")
           
           def pooled_norms(tensor):
               """Compute the original GAP diagnostic and actual RGCL input norm."""
