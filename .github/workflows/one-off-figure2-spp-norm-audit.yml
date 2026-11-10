@@ -1,0 +1,133 @@
+name: One-off Figure 2 GAP vs SPP audit
+on:
+  push:
+    branches:
+      - research/figure2-spp-norm-audit-20261110
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PyTorch CPU and torchvision
+        run: |
+          python -m pip install --disable-pip-version-check torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Compare the original GAP diagnostic with RGCL max-SPP
+        run: |
+          python - <<'PY'
+          """
+          Figure 2 audit: compare global-average pooling, the paper's norm diagnostic,
+          with the exact max-SPP (4x4, 2x2, 1x1) input construction of RGCL.
+          This is a *proxy test* on the two published CIFAR-10 ResNet-18 checkpoints,
+          not a reproduction of the CIFAR-100 Figure 2 models.
+          """
+          import json
+          import sys
+          from pathlib import Path
+          
+          import torch
+          import torch.nn.functional as F
+          from torchvision.datasets import CIFAR10
+          from torchvision import transforms
+          
+          sys.path.insert(0, str(Path.cwd()))
+          from Net.resnet import resnet18
+          
+          torch.manual_seed(11)
+          torch.set_num_threads(2)
+          
+          # Identical, deterministic real CIFAR-10 examples for both trained checkpoints.
+          transform = transforms.Compose([
+              transforms.ToTensor(),
+              transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+          ])
+          dataset = CIFAR10(root="/tmp/cifar10", train=False, download=True, transform=transform)
+          images = torch.stack([dataset[i][0] for i in range(128)])
+          stage_names = ("stem", "layer1", "layer2", "layer3", "layer4")
+          
+          def pooled_norms(tensor):
+              """Compute the original GAP diagnostic and actual RGCL input norm."""
+              if tensor.ndim != 4:
+                  raise ValueError("Expected BCHW convolutional activations")
+              gap = F.adaptive_avg_pool2d(tensor, (1, 1)).flatten(1)
+              spp = torch.cat([
+                  F.adaptive_max_pool2d(tensor, (k, k)).flatten(1)
+                  for k in (4, 2, 1)
+              ], dim=1)
+              return (torch.linalg.vector_norm(gap, dim=1),
+                      torch.linalg.vector_norm(spp, dim=1))
+          
+          def run(seed):
+              """Load the released checkpoint and measure both norms on the same hooks."""
+              checkpoint = Path(f"results/models/cifar10/resnet18/seed{seed}/best_model.pth")
+              assert checkpoint.exists(), f"Missing tracked checkpoint: {checkpoint}"
+              model = resnet18(num_classes=10)
+              state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+              if "model_state" in state:
+                  state = state["model_state"]
+              if all(k.startswith("module.") for k in state):
+                  state = {k.removeprefix("module."): v for k, v in state.items()}
+              model.load_state_dict(state, strict=True)
+              model.eval()
+          
+              output = {}
+              handles = []
+              def record(name):
+                  def hook(_, __, activation):
+                      output[name] = activation.detach()
+                  return hook
+              def record_stem(_, inputs):
+                  output["stem"] = inputs[0].detach()
+          
+              # On this custom CIFAR ResNet, the input of layer1 is the post-stem
+              # activation, exactly as in the original Figure 2 script.
+              handles.append(model.layer1.register_forward_pre_hook(record_stem))
+              for name in stage_names[1:]:
+                  handles.append(getattr(model, name).register_forward_hook(record(name)))
+          
+              norms = {k: {"gap": [], "spp": []} for k in stage_names}
+              with torch.inference_mode():
+                  for batch in images.split(16):
+                      output.clear()
+                      model(batch)
+                      for name in stage_names:
+                          a, b = pooled_norms(output[name])
+                          norms[name]["gap"].extend(a.tolist())
+                          norms[name]["spp"].extend(b.tolist())
+          
+              for h in handles:
+                  h.remove()
+          
+              mean = {
+                  name: {pool: sum(norms[name][pool]) / len(norms[name][pool])
+                         for pool in ("gap", "spp")}
+                  for name in stage_names
+              }
+              def profile(pool):
+                  values = [mean[k][pool] for k in stage_names]
+                  return {
+                      "max_over_min": max(values) / min(values),
+                      "last_over_first": values[-1] / values[0],
+                      "norms_by_layer": dict(zip(stage_names, values)),
+                  }
+              return {"seed": seed, "n_images": len(images),
+                      "gap": profile("gap"), "spp": profile("spp")}
+          
+          results = [run(seed) for seed in (11, 12)]
+          print("FIGURE2_AUDIT_BEGIN")
+          print(json.dumps(results, indent=2))
+          print("FIGURE2_AUDIT_END")
+          Path("/tmp/figure2_norm_audit.json").write_text(json.dumps(results, indent=2))
+          
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: figure2-norm-audit
+          path: /tmp/figure2_norm_audit.json
+          if-no-files-found: ignore
