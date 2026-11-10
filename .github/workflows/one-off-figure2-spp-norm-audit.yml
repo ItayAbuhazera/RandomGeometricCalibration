@@ -23,8 +23,8 @@ jobs:
           """
           Figure 2 audit: compare global-average pooling, the paper's norm diagnostic,
           with the exact max-SPP (4x4, 2x2, 1x1) input construction of RGCL.
-          This is a *proxy test* on the two published CIFAR-10 ResNet-18 checkpoints,
-          not a reproduction of the CIFAR-100 Figure 2 models.
+          This is a *synthetic-input proxy test* on two trained CIFAR-10 ResNet-18 checkpoints,
+          not a reproduction of the CIFAR-100 Figure 2 models or real-image norms.
           """
           import json
           import sys
@@ -41,14 +41,10 @@ jobs:
           torch.manual_seed(11)
           torch.set_num_threads(2)
           
-          # Identical, deterministic real CIFAR-10 examples for both trained checkpoints.
-          transform = transforms.Compose([
-              transforms.ToTensor(),
-              transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-          ])
-          dataset = CIFAR10(root="/tmp/cifar10", train=False, download=True, transform=transform)
-          images = torch.stack([dataset[i][0] for i in range(128)])
-          stage_names = ("stem", "layer1", "layer2", "layer3", "layer4")
+          # Deterministic synthetic proxy images (NOT a CIFAR-10 replication).
+# Same inputs across the two trained checkpoints; no dataset downloads.
+images = torch.randn(64, 3, 32, 32) * 0.8
+stage_names = ("stem", "layer1", "layer2", "layer3", "layer4")
           
           def pooled_norms(tensor):
               """Compute the original GAP diagnostic and actual RGCL input norm."""
